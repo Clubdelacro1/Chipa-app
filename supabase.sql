@@ -42,8 +42,8 @@ insert into formatos (nombre, kg, precio, orden) values
   ('1/2 kg',       0.5,  null,   2),
   ('1/4 kg',       0.25, null,   3),
   ('10 kg',        10,   165500, 4),
-  ('12 unidades',  null, 10000,  5),
-  ('6 unidades',   null, 6000,   6);
+  ('12 unidades',  0.36, 10000,  5),
+  ('6 unidades',   0.18, 6000,   6);
 
 -- Totales para mostrar arriba en la app
 create view resumen with (security_invoker = true) as

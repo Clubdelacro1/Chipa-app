@@ -215,12 +215,27 @@ function mostrar(pantalla) {
   $('barraUsuario').classList.toggle('oculto', pantalla !== 'pantallaApp');
 }
 
+// Ejecuta un pedido a Supabase. Si llega sin sesión (pasa cuando el celular deja la
+// pestaña dormida un rato), renueva la sesión y lo reintenta una vez; un pedido rechazado
+// por falta de sesión no llegó a hacer nada, así que reintentarlo es seguro.
+async function conSesion(fn) {
+  const res = await fn();
+  const sinSesion = res.error && (res.status === 401 || res.error.code === '42501');
+  if (!sinSesion) return res;
+  const { data } = await db.auth.refreshSession();
+  if (!data.session) {
+    await db.auth.signOut();
+    return { error: { message: 'Tu sesión venció. Volvé a entrar.' } };
+  }
+  return fn();
+}
+
 // Ejecuta una acción deshabilitando el botón y mostrando el error si falla
 async function accion(boton, errorEl, fn) {
   errorEl.textContent = '';
   boton.disabled = true;
   try {
-    const { error } = await fn();
+    const { error } = await conSesion(fn);
     if (error) { errorEl.textContent = error.message; return false; }
     await cargarDatos();
     return true;
@@ -391,7 +406,7 @@ function borrarProducto(id, boton) {
   confirmarEnBoton(boton, async () => {
     boton.disabled = true;
     if (editandoId === id) terminarEdicion();
-    const { error } = await db.from('productos').delete().eq('id', id);
+    const { error } = await conSesion(() => db.from('productos').delete().eq('id', id));
     if (error) mostrarError(error.message);
     await cargarDatos();
   });
@@ -420,7 +435,7 @@ function guardarFormato(id, boton) {
 function borrarFormato(id, boton) {
   confirmarEnBoton(boton, async () => {
     boton.disabled = true;
-    const { error } = await db.from('formatos').delete().eq('id', id);
+    const { error } = await conSesion(() => db.from('formatos').delete().eq('id', id));
     if (error) mostrarError(error.message);
     await cargarDatos();
   });
@@ -508,7 +523,7 @@ $('formVenta').addEventListener('submit', async e => {
 function anularVenta(id, boton) {
   confirmarEnBoton(boton, async () => {
     boton.disabled = true;
-    const { error } = await db.rpc('anular_venta', { p_venta: id });
+    const { error } = await conSesion(() => db.rpc('anular_venta', { p_venta: id }));
     if (error) mostrarError(error.message);
     await cargarDatos();
   });
@@ -544,6 +559,11 @@ async function alCambiarSesion(sesion) {
     mostrar('pantallaLogin');
   }
 }
+
+// Al volver a la app después de un rato, trae los datos frescos
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && canal) cargarDatos();
+});
 
 // ----- Inicio -----
 if (SUPABASE_URL.startsWith('PEGAR') || SUPABASE_KEY.startsWith('PEGAR')) {
