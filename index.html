@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chipa App</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #faf7f2; --card: #fff; --text: #2b2420; --muted: #7a6f66;
+    --accent: #c8862b; --accent-dark: #a86d1c; --border: #e8e0d6;
+    --ok: #2e7d4f; --danger: #b3412e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--accent); color: #fff; padding: 12px 16px; }
+  header .fila { max-width: 900px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  header h1 { margin: 0; font-size: 1.4rem; }
+  header .usuario { font-size: .85rem; display: flex; align-items: center; gap: 8px; }
+  header .usuario button { background: rgba(255,255,255,.2); color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  .oculto { display: none !important; }
+  .totales { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .total { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .total span { display: block; color: var(--muted); font-size: .85rem; }
+  .total strong { font-size: 1.5rem; }
+  .total.ventas strong { color: var(--ok); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button { flex: 1; padding: 10px; border: 1px solid var(--border); background: var(--card); border-radius: 8px; font-size: 1rem; cursor: pointer; color: var(--text); }
+  .tabs button.activo { background: var(--accent); color: #fff; border-color: var(--accent); }
+  section.pestana { display: none; }
+  section.pestana.activo { display: block; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  form.linea { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+  form.login { display: grid; gap: 10px; max-width: 360px; margin: 40px auto; }
+  label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  input, select { padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 1rem; width: 100%; background: #fff; color: var(--text); }
+  button.primario { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 9px 14px; font-size: 1rem; cursor: pointer; }
+  button.primario:hover { background: var(--accent-dark); }
+  button:disabled { opacity: .6; cursor: wait; }
+  button.link { background: none; border: 0; cursor: pointer; padding: 4px; font-size: .9rem; }
+  button.link.borrar { color: var(--danger); }
+  button.link.editar { color: var(--accent-dark); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { font-size: .8rem; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  td .quien { display: block; font-size: .75rem; color: var(--muted); }
+  .vacio { color: var(--muted); text-align: center; padding: 16px; }
+  .sin-stock { color: var(--danger); font-weight: 600; }
+  .error { color: var(--danger); font-size: .9rem; margin-top: 8px; min-height: 1em; }
+  .aviso { background: #fff4e0; border: 1px solid #f0d29a; border-radius: 10px; padding: 14px; }
+  @media (max-width: 600px) {
+    form.linea { grid-template-columns: 1fr 1fr; }
+    form.linea label:first-child { grid-column: 1 / -1; }
+    form.linea button { grid-column: 1 / -1; }
+    .total strong { font-size: 1.2rem; }
+    th, td { padding: 6px 3px; font-size: .9rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="fila">
+    <h1>🥯 Chipa App</h1>
+    <div class="usuario oculto" id="barraUsuario"><span id="emailUsuario"></span><button id="btnSalir">Salir</button></div>
+  </div>
+</header>
+<main>
+  <!-- Falta configurar -->
+  <div class="aviso oculto" id="pantallaConfig">
+    Falta configurar Supabase: completá <code>SUPABASE_URL</code> y <code>SUPABASE_KEY</code> al principio del script de este archivo.
+  </div>
+
+  <!-- LOGIN -->
+  <form class="login card oculto" id="pantallaLogin">
+    <h2>Ingresar</h2>
+    <label>Email <input id="lEmail" type="email" required autocomplete="username"></label>
+    <label>Contraseña <input id="lClave" type="password" required autocomplete="current-password"></label>
+    <button class="primario" type="submit" id="btnEntrar">Entrar</button>
+    <div class="error" id="errLogin"></div>
+  </form>
+
+  <!-- APP -->
+  <div class="oculto" id="pantallaApp">
+    <div class="totales">
+      <div class="total"><span>Valor total del stock</span><strong id="totalStock">$0</strong></div>
+      <div class="total ventas"><span>Total vendido</span><strong id="totalVentas">$0</strong></div>
+    </div>
+
+    <div class="tabs">
+      <button data-tab="stock" class="activo">Stock</button>
+      <button data-tab="ventas">Ventas</button>
+    </div>
+
+    <!-- STOCK -->
+    <section id="stock" class="pestana activo">
+      <div class="card">
+        <h2 id="tituloForm">Cargar producto</h2>
+        <form class="linea" id="formProducto">
+          <label>Producto <input id="pNombre" required placeholder="Ej: Chipa x 1/2 kg"></label>
+          <label>Cantidad <input id="pCantidad" type="number" min="0" step="1" required></label>
+          <label>Precio de venta <input id="pPrecio" type="number" min="0" step="0.01" required></label>
+          <button class="primario" type="submit" id="btnProducto">Agregar</button>
+        </form>
+        <div class="error" id="errProducto"></div>
+      </div>
+      <div class="card">
+        <h2>Stock disponible</h2>
+        <table>
+          <thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
+          <tbody id="tablaStock"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- VENTAS -->
+    <section id="ventas" class="pestana">
+      <div class="card">
+        <h2>Cargar venta</h2>
+        <form class="linea" id="formVenta">
+          <label>Producto <select id="vProducto" required></select></label>
+          <label>Cantidad <input id="vCantidad" type="number" min="1" step="1" required></label>
+          <label>Precio unit. <input id="vPrecio" type="number" min="0" step="0.01" required></label>
+          <button class="primario" type="submit" id="btnVenta">Vender</button>
+        </form>
+        <div class="error" id="errVenta"></div>
+      </div>
+      <div class="card">
+        <h2>Últimas ventas</h2>
+        <table>
+          <thead><tr><th>Fecha</th><th>Producto</th><th class="num">Cant.</th><th class="num">Total</th><th></th></tr></thead>
+          <tbody id="tablaVentas"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+// ===== CONFIGURACIÓN: datos de tu proyecto en Supabase =====
+// Supabase > Project Settings > API: "Project URL" y la clave "anon public" (o "publishable").
+// Esta clave es pública por diseño; los datos están protegidos por el login.
+const SUPABASE_URL = 'https://larilavpjbbbtldfeedw.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_9quNETylXglsAZP0iRc6NQ_ydcZNXR_';
+// ===========================================================
+
+const ULTIMAS_VENTAS = 200;
+const $ = id => document.getElementById(id);
+const dinero = n => Number(n).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+const escapar = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let db = null;
+let productos = [];
+let ventas = [];
+let editandoId = null;
+let canal = null;
+
+function mostrar(pantalla) {
+  for (const id of ['pantallaConfig', 'pantallaLogin', 'pantallaApp']) $(id).classList.toggle('oculto', id !== pantalla);
+  $('barraUsuario').classList.toggle('oculto', pantalla !== 'pantallaApp');
+}
+
+// Ejecuta una acción deshabilitando el botón y mostrando el error si falla
+async function accion(boton, errorEl, fn) {
+  errorEl.textContent = '';
+  boton.disabled = true;
+  try {
+    const { error } = await fn();
+    if (error) { errorEl.textContent = error.message; return false; }
+    await cargarDatos();
+    return true;
+  } catch (e) {
+    errorEl.textContent = 'No se pudo conectar. Revisá tu internet.';
+    return false;
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+// ----- Datos -----
+async function cargarDatos() {
+  const [p, v, r] = await Promise.all([
+    db.from('productos').select('*').order('nombre'),
+    db.from('ventas').select('*').order('fecha', { ascending: false }).limit(ULTIMAS_VENTAS),
+    db.from('resumen').select('*').single(),
+  ]);
+  if (p.error || v.error || r.error) { console.error(p.error || v.error || r.error); return; }
+  productos = p.data;
+  ventas = v.data;
+  $('totalStock').textContent = dinero(r.data.total_stock);
+  $('totalVentas').textContent = dinero(r.data.total_ventas);
+  render();
+}
+
+let recargaPendiente = null;
+function escucharCambios() {
+  canal = db.channel('cambios')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, programarRecarga)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, programarRecarga)
+    .subscribe();
+}
+function programarRecarga() {
+  clearTimeout(recargaPendiente);
+  recargaPendiente = setTimeout(cargarDatos, 300);
+}
+
+function render() {
+  $('tablaStock').innerHTML = productos.length
+    ? productos.map(p => `
+      <tr>
+        <td>${escapar(p.nombre)}</td>
+        <td class="num ${p.cantidad === 0 ? 'sin-stock' : ''}">${p.cantidad}</td>
+        <td class="num">${dinero(p.precio)}</td>
+        <td class="num">${dinero(p.cantidad * p.precio)}</td>
+        <td class="num">
+          <button class="link editar" onclick="editarProducto('${p.id}')">Editar</button>
+          <button class="link borrar" onclick="borrarProducto('${p.id}')">Borrar</button>
+        </td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="vacio">Todavía no hay productos cargados</td></tr>';
+
+  const seleccionado = $('vProducto').value;
+  $('vProducto').innerHTML = '<option value="">Elegir…</option>' +
+    productos.map(p => `<option value="${p.id}" ${p.cantidad === 0 ? 'disabled' : ''}>${escapar(p.nombre)} (${p.cantidad} disp.)</option>`).join('');
+  $('vProducto').value = productos.some(p => p.id === seleccionado) ? seleccionado : '';
+
+  $('tablaVentas').innerHTML = ventas.length
+    ? ventas.map(v => `
+      <tr>
+        <td>${new Date(v.fecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
+            <span class="quien">${escapar(v.vendedor)}</span></td>
+        <td>${escapar(v.nombre)}</td>
+        <td class="num">${v.cantidad}</td>
+        <td class="num">${dinero(v.total)}</td>
+        <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}')">Anular</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="vacio">Todavía no hay ventas</td></tr>';
+}
+
+// ----- Productos -----
+$('formProducto').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nombre = $('pNombre').value.trim();
+  const cantidad = parseInt($('pCantidad').value, 10);
+  const precio = parseFloat($('pPrecio').value);
+  if (!nombre || isNaN(cantidad) || cantidad < 0 || isNaN(precio) || precio < 0) {
+    $('errProducto').textContent = 'Revisá los datos ingresados.';
+    return;
+  }
+  const ok = await accion($('btnProducto'), $('errProducto'), () => editandoId
+    ? db.from('productos').update({ nombre, cantidad, precio }).eq('id', editandoId)
+    : db.rpc('cargar_stock', { p_nombre: nombre, p_cantidad: cantidad, p_precio: precio }));
+  if (ok) terminarEdicion();
+});
+
+function editarProducto(id) {
+  const p = productos.find(p => p.id === id);
+  editandoId = id;
+  $('pNombre').value = p.nombre;
+  $('pCantidad').value = p.cantidad;
+  $('pPrecio').value = p.precio;
+  $('tituloForm').textContent = 'Editar producto';
+  $('btnProducto').textContent = 'Guardar';
+  $('pNombre').focus();
+}
+function terminarEdicion() {
+  editandoId = null;
+  $('formProducto').reset();
+  $('tituloForm').textContent = 'Cargar producto';
+  $('btnProducto').textContent = 'Agregar';
+}
+async function borrarProducto(id) {
+  const p = productos.find(p => p.id === id);
+  if (!confirm(`¿Borrar "${p.nombre}" del stock? Las ventas ya registradas se mantienen.`)) return;
+  if (editandoId === id) terminarEdicion();
+  const { error } = await db.from('productos').delete().eq('id', id);
+  if (error) alert(error.message);
+  await cargarDatos();
+}
+
+// ----- Ventas -----
+$('vProducto').addEventListener('change', () => {
+  const p = productos.find(p => p.id === $('vProducto').value);
+  $('vPrecio').value = p ? p.precio : '';
+});
+
+$('formVenta').addEventListener('submit', async e => {
+  e.preventDefault();
+  const p = productos.find(p => p.id === $('vProducto').value);
+  const cantidad = parseInt($('vCantidad').value, 10);
+  const precio = parseFloat($('vPrecio').value);
+  if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
+  if (isNaN(cantidad) || cantidad < 1) { $('errVenta').textContent = 'La cantidad tiene que ser al menos 1.'; return; }
+  if (isNaN(precio) || precio < 0) { $('errVenta').textContent = 'Revisá el precio.'; return; }
+  const ok = await accion($('btnVenta'), $('errVenta'),
+    () => db.rpc('registrar_venta', { p_producto: p.id, p_cantidad: cantidad, p_precio: precio }));
+  if (ok) $('formVenta').reset();
+});
+
+async function anularVenta(id) {
+  const v = ventas.find(v => v.id === id);
+  if (!confirm(`¿Anular la venta de ${v.cantidad} x "${v.nombre}"? Se devuelve al stock.`)) return;
+  const { error } = await db.rpc('anular_venta', { p_venta: id });
+  if (error) alert(error.message);
+  await cargarDatos();
+}
+
+// ----- Pestañas -----
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button, section.pestana').forEach(el => el.classList.remove('activo'));
+  b.classList.add('activo');
+  $(b.dataset.tab).classList.add('activo');
+}));
+
+// ----- Login -----
+$('pantallaLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('errLogin').textContent = '';
+  $('btnEntrar').disabled = true;
+  const { error } = await db.auth.signInWithPassword({ email: $('lEmail').value.trim(), password: $('lClave').value });
+  $('btnEntrar').disabled = false;
+  if (error) $('errLogin').textContent = 'Email o contraseña incorrectos.';
+});
+$('btnSalir').addEventListener('click', () => db.auth.signOut());
+
+async function alCambiarSesion(sesion) {
+  if (sesion) {
+    $('emailUsuario').textContent = sesion.user.email;
+    mostrar('pantallaApp');
+    if (!canal) escucharCambios();
+    await cargarDatos();
+  } else {
+    if (canal) { db.removeChannel(canal); canal = null; }
+    $('pantallaLogin').reset();
+    mostrar('pantallaLogin');
+  }
+}
+
+// ----- Inicio -----
+if (SUPABASE_URL.startsWith('PEGAR') || SUPABASE_KEY.startsWith('PEGAR')) {
+  mostrar('pantallaConfig');
+} else {
+  db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  // setTimeout evita llamar a Supabase dentro del propio callback de auth
+  db.auth.onAuthStateChange((evento, sesion) => {
+    if (evento === 'TOKEN_REFRESHED') return;
+    setTimeout(() => alCambiarSesion(sesion), 0);
+  });
+}
+</script>
+</body>
+</html>
