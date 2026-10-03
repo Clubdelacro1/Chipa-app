@@ -27,6 +27,24 @@ create table ventas (
 );
 create index ventas_fecha on ventas (fecha desc);
 
+-- Formatos de venta (botones de la pestaña Ventas), editables desde la app
+create table formatos (
+  id     uuid primary key default gen_random_uuid(),
+  nombre text not null check (length(trim(nombre)) > 0),
+  kg     numeric(10,3) check (kg > 0),        -- kg que descuenta del stock (null = falta cargar)
+  precio numeric(12,2) check (precio >= 0),   -- precio fijo (null = según precio por kg)
+  orden  integer not null default 0
+);
+create unique index formatos_nombre_unico on formatos (lower(nombre));
+
+insert into formatos (nombre, kg, precio, orden) values
+  ('1 kg',         1,    null,   1),
+  ('1/2 kg',       0.5,  null,   2),
+  ('1/4 kg',       0.25, null,   3),
+  ('10 kg',        10,   165500, 4),
+  ('12 unidades',  null, 10000,  5),
+  ('6 unidades',   null, 6000,   6);
+
 -- Totales para mostrar arriba en la app
 create view resumen with (security_invoker = true) as
 select
@@ -36,10 +54,13 @@ select
 -- ---------- Seguridad: solo usuarios logueados ----------
 alter table productos enable row level security;
 alter table ventas    enable row level security;
+alter table formatos  enable row level security;
 
 create policy "usuarios logueados" on productos
   for all to authenticated using (true) with check (true);
 create policy "usuarios logueados" on ventas
+  for all to authenticated using (true) with check (true);
+create policy "usuarios logueados" on formatos
   for all to authenticated using (true) with check (true);
 
 -- ---------- Operaciones ----------
@@ -102,4 +123,4 @@ grant  execute on function registrar_venta(uuid, numeric, numeric, text, text)  
 grant  execute on function anular_venta(uuid)                                   to authenticated;
 
 -- ---------- Tiempo real: que todos vean los cambios al instante ----------
-alter publication supabase_realtime add table productos, ventas;
+alter publication supabase_realtime add table productos, ventas, formatos;

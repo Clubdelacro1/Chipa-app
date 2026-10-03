@@ -37,9 +37,15 @@
   form.venta .ancho { grid-column: 1 / -1; }
   .etiqueta { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
   .formatos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .ayuda { font-size: .85rem; color: var(--muted); margin: -4px 0 10px; }
+  .tabla-formatos td { padding: 4px 3px; }
+  .tabla-formatos input { padding: 6px; font-size: .95rem; }
+  .tabla-formatos td:nth-child(2) { width: 17%; }
+  .tabla-formatos td:nth-child(3) { width: 24%; }
+  .tabla-formatos td:last-child { width: 1%; white-space: nowrap; }
   .formatos label { display: block; }
   .formatos input { position: absolute; opacity: 0; width: 0; }
-  .formatos span { display: block; text-align: center; padding: 10px 4px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; color: var(--text); cursor: pointer; background: #fff; }
+  .formatos span { display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 10px 2px; border: 1px solid var(--border); border-radius: 8px; font-size: .95rem; line-height: 1.2; color: var(--text); cursor: pointer; background: #fff; }
   .formatos input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   .formatos input:focus-visible + span { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
   .resumen-venta { font-size: .9rem; color: var(--muted); }
@@ -69,6 +75,13 @@
     form.linea button { grid-column: 1 / -1; }
     .total strong { font-size: 1.2rem; }
     th, td { padding: 6px 3px; font-size: .9rem; }
+    /* Formatos de venta: cada uno como ficha (nombre arriba; kg, precio y botones abajo) */
+    .tabla-formatos thead { display: none; }
+    .tabla-formatos tr { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; align-items: end; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .tabla-formatos td { border: 0; padding: 0; width: auto !important; }
+    .tabla-formatos td:first-child { grid-column: 1 / -1; }
+    .tabla-formatos td[data-label]::before { content: attr(data-label); display: block; font-size: .75rem; color: var(--muted); margin-bottom: 2px; }
+    .tabla-formatos td:last-child { display: flex; flex-direction: column; align-items: flex-end; }
   }
 </style>
 </head>
@@ -126,6 +139,23 @@
           <tbody id="tablaStock"></tbody>
         </table>
       </div>
+      <div class="card">
+        <h2>Formatos de venta</h2>
+        <p class="ayuda">Los kg son lo que se descuenta del stock en cada venta. Si dejás el precio fijo vacío, se calcula con el precio por kg.</p>
+        <table class="tabla-formatos">
+          <thead><tr><th>Formato</th><th>Kg</th><th>Precio fijo</th><th></th></tr></thead>
+          <tbody id="tablaFormatos"></tbody>
+          <tfoot>
+            <tr>
+              <td><input id="fNombre" placeholder="Nuevo formato"></td>
+              <td data-label="Kg"><input id="fKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="kg"></td>
+              <td data-label="Precio fijo"><input id="fPrecio" type="number" min="0" step="0.01" inputmode="decimal" placeholder="—"></td>
+              <td class="num"><button class="link editar" id="btnAgregarFormato">Agregar</button></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="error" id="errFormato"></div>
+      </div>
     </section>
 
     <!-- VENTAS -->
@@ -136,12 +166,7 @@
           <label class="ancho" id="campoProducto">Producto <select id="vProducto"></select></label>
           <div class="ancho">
             <span class="etiqueta">Formato</span>
-            <div class="formatos" id="formatos">
-              <label><input type="radio" name="formato" value="1" checked><span>1 kg</span></label>
-              <label><input type="radio" name="formato" value="0.5"><span>1/2 kg</span></label>
-              <label><input type="radio" name="formato" value="0.25"><span>1/4 kg</span></label>
-              <label><input type="radio" name="formato" value="otro"><span>Otro</span></label>
-            </div>
+            <div class="formatos" id="formatos"></div>
           </div>
           <label id="campoBolsas">Cantidad (bolsas) <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
           <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
@@ -181,6 +206,7 @@ const escapar = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '
 let db = null;
 let productos = [];
 let ventas = [];
+let formatos = [];
 let editandoId = null;
 let canal = null;
 
@@ -233,14 +259,16 @@ function confirmarEnBoton(boton, fn) {
 
 // ----- Datos -----
 async function cargarDatos() {
-  const [p, v, r] = await Promise.all([
+  const [p, v, r, f] = await Promise.all([
     db.from('productos').select('*').order('nombre'),
     db.from('ventas').select('*').order('fecha', { ascending: false }).limit(ULTIMAS_VENTAS),
     db.from('resumen').select('*').single(),
+    db.from('formatos').select('*').order('orden').order('nombre'),
   ]);
-  if (p.error || v.error || r.error) { console.error(p.error || v.error || r.error); return; }
+  if (p.error || v.error || r.error || f.error) { console.error(p.error || v.error || r.error || f.error); return; }
   productos = p.data;
   ventas = v.data;
+  formatos = f.data;
   $('totalStock').textContent = dinero(r.data.total_stock);
   $('totalVentas').textContent = dinero(r.data.total_ventas);
   render();
@@ -251,6 +279,7 @@ function escucharCambios() {
   canal = db.channel('cambios')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, programarRecarga)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, programarRecarga)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'formatos' }, programarRecarga)
     .subscribe();
 }
 function programarRecarga() {
@@ -272,6 +301,28 @@ function render() {
         </td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay productos cargados</td></tr>';
+
+  // Botones de formato en Ventas (se mantiene el elegido) + "Otro" al final
+  const elegido = document.querySelector('input[name="formato"]:checked')?.value;
+  const valores = [...formatos.map(f => f.id), 'otro'];
+  const marcado = valores.includes(elegido) ? elegido : valores[0];
+  $('formatos').innerHTML = [...formatos.map(f => [f.id, f.nombre]), ['otro', 'Otro']]
+    .map(([valor, nombre]) => `<label><input type="radio" name="formato" value="${valor}" ${valor === marcado ? 'checked' : ''}><span>${escapar(nombre)}</span></label>`)
+    .join('');
+
+  // Tabla editable de formatos (no se redibuja mientras alguien está escribiendo en ella)
+  if (!$('tablaFormatos').contains(document.activeElement)) {
+    $('tablaFormatos').innerHTML = formatos.map(f => `
+      <tr data-id="${f.id}">
+        <td><input class="f-nombre" value="${escapar(f.nombre)}"></td>
+        <td data-label="Kg"><input class="f-kg" type="number" min="0.001" step="0.001" inputmode="decimal" value="${f.kg ?? ''}" placeholder="falta"></td>
+        <td data-label="Precio fijo"><input class="f-precio" type="number" min="0" step="0.01" inputmode="decimal" value="${f.precio ?? ''}" placeholder="—"></td>
+        <td class="num">
+          <button class="link editar" onclick="guardarFormato('${f.id}', this)">Guardar</button>
+          <button class="link borrar" onclick="borrarFormato('${f.id}', this)">Borrar</button>
+        </td>
+      </tr>`).join('');
+  }
 
   // Selector de producto: si hay uno solo, se elige solo y no se muestra
   const seleccionado = $('vProducto').value;
@@ -296,7 +347,7 @@ function render() {
         <td>${escapar(v.cliente || '—')}</td>
         <td>${escapar(v.formato || kilos(v.cantidad))}
             ${productos.length > 1 ? `<span class="quien">${escapar(v.nombre)}</span>` : ''}
-            ${v.formato && !/^1(\/[24])? kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
+            ${v.formato && !/^[\d\/,.]+ kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
         <td class="num">${dinero(v.total)}</td>
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
@@ -346,36 +397,79 @@ function borrarProducto(id, boton) {
   });
 }
 
-// ----- Ventas -----
-const NOMBRES_FORMATO = { '1': '1 kg', '0.5': '1/2 kg', '0.25': '1/4 kg', 'otro': 'Otro' };
+// ----- Formatos de venta -----
+// Lee nombre, kg y precio fijo (vacíos = null) de una fila o del alta
+function leerFormato(nombreEl, kgEl, precioEl) {
+  const nombre = nombreEl.value.trim();
+  const kg = kgEl.value === '' ? null : parseFloat(kgEl.value);
+  const precio = precioEl.value === '' ? null : parseFloat(precioEl.value);
+  if (!nombre) return { error: 'El formato necesita un nombre.' };
+  if (kg !== null && !(kg > 0)) return { error: 'Los kg tienen que ser mayores a 0.' };
+  if (precio !== null && !(precio >= 0)) return { error: 'Revisá el precio fijo.' };
+  return { datos: { nombre, kg, precio } };
+}
 
-// Lee el formulario de venta: producto, kg a descontar y descripción del formato
+function guardarFormato(id, boton) {
+  const fila = boton.closest('tr');
+  const { error, datos } = leerFormato(fila.querySelector('.f-nombre'), fila.querySelector('.f-kg'), fila.querySelector('.f-precio'));
+  if (error) { $('errFormato').textContent = error; return; }
+  boton.blur();
+  accion(boton, $('errFormato'), () => db.from('formatos').update(datos).eq('id', id));
+}
+
+function borrarFormato(id, boton) {
+  confirmarEnBoton(boton, async () => {
+    boton.disabled = true;
+    const { error } = await db.from('formatos').delete().eq('id', id);
+    if (error) mostrarError(error.message);
+    await cargarDatos();
+  });
+}
+
+$('btnAgregarFormato').addEventListener('click', async () => {
+  const { error, datos } = leerFormato($('fNombre'), $('fKg'), $('fPrecio'));
+  if (error) { $('errFormato').textContent = error; return; }
+  datos.orden = Math.max(0, ...formatos.map(f => f.orden)) + 1;
+  $('btnAgregarFormato').blur();
+  const ok = await accion($('btnAgregarFormato'), $('errFormato'), () => db.from('formatos').insert(datos));
+  if (ok) { $('fNombre').value = ''; $('fKg').value = ''; $('fPrecio').value = ''; }
+});
+
+// ----- Ventas -----
+// Lee el formulario de venta: producto, formato, kg a descontar, total sugerido y descripción
 function datosVenta() {
   const p = productos.find(p => p.id === $('vProducto').value);
-  const formato = document.querySelector('input[name="formato"]:checked').value;
-  let kg, descripcion;
-  if (formato === 'otro') {
+  const formato = document.querySelector('input[name="formato"]:checked')?.value || 'otro';
+  const f = formatos.find(f => f.id === formato);
+  let kg, sugerido, descripcion;
+  if (!f) {
     kg = parseFloat($('vKg').value);
+    sugerido = p ? kg * Number(p.precio) : NaN;
     descripcion = 'Otro';
   } else {
     const bolsas = parseInt($('vBolsas').value, 10);
-    kg = Number(formato) * bolsas;
-    descripcion = NOMBRES_FORMATO[formato] + (bolsas > 1 ? ` x${bolsas}` : '');
+    kg = f.kg == null ? NaN : Number(f.kg) * bolsas;
+    sugerido = f.precio != null ? Number(f.precio) * bolsas : (p ? kg * Number(p.precio) : NaN);
+    descripcion = f.nombre + (bolsas > 1 ? ` x${bolsas}` : '');
   }
-  return { p, formato, kg: Math.round(kg * 1000) / 1000, descripcion };
+  return { p, f, formato, kg: Math.round(kg * 1000) / 1000, sugerido, descripcion };
 }
 
-// Recalcula el total sugerido (kg x precio por kg) y muestra cuánto stock queda
+// Recalcula el total sugerido y muestra cuánto stock queda
 function actualizarVenta(recalcularTotal = true) {
-  const { p, formato, kg } = datosVenta();
+  const { p, f, formato, kg, sugerido } = datosVenta();
   $('errVenta').textContent = '';
   $('campoBolsas').classList.toggle('oculto', formato === 'otro');
   $('campoKg').classList.toggle('oculto', formato !== 'otro');
+  if (recalcularTotal && sugerido >= 0) $('vTotal').value = Math.round(sugerido);
+  if (f && f.kg == null) {
+    $('resumenVenta').innerHTML = `<span class="sin-stock">Falta cargar cuántos kg pesa "${escapar(f.nombre)}". Configuralo en Stock → Formatos de venta.</span>`;
+    return;
+  }
   if (!p || !(kg > 0)) {
     $('resumenVenta').textContent = productos.length ? '' : 'Primero cargá stock en la pestaña Stock.';
     return;
   }
-  if (recalcularTotal) $('vTotal').value = Math.round(kg * Number(p.precio));
   const queda = Number(p.cantidad) - kg;
   $('resumenVenta').innerHTML = queda < 0
     ? `<span class="sin-stock">Solo hay ${kilos(p.cantidad)} en stock.</span>`
@@ -392,9 +486,10 @@ $('vKg').addEventListener('input', () => actualizarVenta());
 
 $('formVenta').addEventListener('submit', async e => {
   e.preventDefault();
-  const { p, kg, descripcion } = datosVenta();
+  const { p, f, kg, descripcion } = datosVenta();
   const total = parseFloat($('vTotal').value);
   if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
+  if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuántos kg pesa "${f.nombre}" (Stock → Formatos de venta).`; return; }
   if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
   if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${kilos(p.cantidad)} en stock.`; return; }
   if (isNaN(total) || total < 0) { $('errVenta').textContent = 'Revisá el total.'; return; }
