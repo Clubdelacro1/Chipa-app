@@ -1,12 +1,13 @@
--- Chipa App: estructura de la base de datos.
--- Pegar todo esto en Supabase > SQL Editor > New query y apretar "Run".
+-- Chipa App: estructura de la base de datos (estado actual).
+-- Sirve para recrear la base en un proyecto nuevo: Supabase > SQL Editor > New query > Run.
 
 -- ---------- Tablas ----------
+-- Stock en kg, con precio por kg
 create table productos (
   id       uuid primary key default gen_random_uuid(),
   nombre   text not null check (length(trim(nombre)) > 0),
-  cantidad integer not null default 0 check (cantidad >= 0),
-  precio   numeric(12,2) not null check (precio >= 0),
+  cantidad numeric(10,3) not null default 0 check (cantidad >= 0),  -- kg
+  precio   numeric(12,2) not null check (precio >= 0),              -- por kg
   creado   timestamptz not null default now()
 );
 -- No se puede repetir un producto con el mismo nombre (sin importar mayúsculas)
@@ -17,9 +18,11 @@ create table ventas (
   fecha       timestamptz not null default now(),
   producto_id uuid references productos(id) on delete set null,
   nombre      text not null,
-  cantidad    integer not null check (cantidad > 0),
-  precio_unit numeric(12,2) not null check (precio_unit >= 0),
-  total       numeric(14,2) generated always as (cantidad * precio_unit) stored,
+  cantidad    numeric(10,3) not null check (cantidad > 0),  -- kg descontados
+  precio_unit numeric(12,2),                                -- precio efectivo por kg
+  total       numeric(14,2) not null constraint ventas_total_positivo check (total >= 0),
+  formato     text,                                         -- "1 kg", "1/2 kg x3", "Otro"...
+  cliente     text,                                         -- a quién se le vendió
   vendedor    text default (auth.jwt() ->> 'email')
 );
 create index ventas_fecha on ventas (fecha desc);
@@ -40,41 +43,45 @@ create policy "usuarios logueados" on ventas
   for all to authenticated using (true) with check (true);
 
 -- ---------- Operaciones ----------
--- Cargar stock: si el producto ya existe suma la cantidad y actualiza el precio
-create or replace function cargar_stock(p_nombre text, p_cantidad integer, p_precio numeric)
-returns void language sql as $$
+-- Cargar stock: si el producto ya existe suma los kg y actualiza el precio por kg
+create function cargar_stock(p_nombre text, p_kg numeric, p_precio numeric)
+returns void language sql set search_path = public as $$
   insert into productos (nombre, cantidad, precio)
-  values (trim(p_nombre), p_cantidad, p_precio)
+  values (trim(p_nombre), p_kg, p_precio)
   on conflict ((lower(nombre))) do update
     set cantidad = productos.cantidad + excluded.cantidad,
         precio   = excluded.precio;
 $$;
 
--- Registrar venta: descuenta del stock en una sola operación (evita vender lo que no hay
--- aunque dos personas carguen ventas al mismo tiempo)
-create or replace function registrar_venta(p_producto uuid, p_cantidad integer, p_precio numeric)
-returns void language plpgsql as $$
+-- Registrar venta: descuenta los kg del stock en una sola operación (evita vender lo que
+-- no hay aunque dos personas carguen ventas al mismo tiempo)
+create function registrar_venta(p_producto uuid, p_kg numeric, p_total numeric, p_formato text, p_cliente text)
+returns void language plpgsql set search_path = public as $$
 declare
   v_prod productos;
 begin
-  if p_cantidad is null or p_cantidad < 1 then
-    raise exception 'La cantidad tiene que ser al menos 1.';
+  if p_kg is null or p_kg <= 0 then
+    raise exception 'Los kg tienen que ser mayores a 0.';
+  end if;
+  if p_total is null or p_total < 0 then
+    raise exception 'Revisá el total.';
   end if;
   select * into v_prod from productos where id = p_producto for update;
   if not found then
     raise exception 'El producto no existe.';
   end if;
-  if v_prod.cantidad < p_cantidad then
-    raise exception 'Solo hay % de "%" en stock.', v_prod.cantidad, v_prod.nombre;
+  if v_prod.cantidad < p_kg then
+    raise exception 'Solo hay % kg de "%" en stock.', replace(trim_scale(v_prod.cantidad)::text, '.', ','), v_prod.nombre;
   end if;
-  update productos set cantidad = cantidad - p_cantidad where id = p_producto;
-  insert into ventas (producto_id, nombre, cantidad, precio_unit)
-  values (p_producto, v_prod.nombre, p_cantidad, p_precio);
+  update productos set cantidad = cantidad - p_kg where id = p_producto;
+  insert into ventas (producto_id, nombre, cantidad, precio_unit, total, formato, cliente)
+  values (p_producto, v_prod.nombre, p_kg, round(p_total / p_kg, 2), p_total,
+          nullif(trim(p_formato), ''), nullif(trim(p_cliente), ''));
 end $$;
 
--- Anular venta: la borra y devuelve la cantidad al stock
-create or replace function anular_venta(p_venta uuid)
-returns void language plpgsql as $$
+-- Anular venta: la borra y devuelve los kg al stock
+create function anular_venta(p_venta uuid)
+returns void language plpgsql set search_path = public as $$
 declare
   v ventas;
 begin
@@ -87,16 +94,12 @@ begin
   end if;
 end $$;
 
-revoke execute on function cargar_stock(text, integer, numeric)     from public, anon;
-revoke execute on function registrar_venta(uuid, integer, numeric)  from public, anon;
-revoke execute on function anular_venta(uuid)                       from public, anon;
-grant  execute on function cargar_stock(text, integer, numeric)     to authenticated;
-grant  execute on function registrar_venta(uuid, integer, numeric)  to authenticated;
-grant  execute on function anular_venta(uuid)                       to authenticated;
-
-alter function cargar_stock(text, integer, numeric)    set search_path = public;
-alter function registrar_venta(uuid, integer, numeric) set search_path = public;
-alter function anular_venta(uuid)                      set search_path = public;
+revoke execute on function cargar_stock(text, numeric, numeric)                 from public, anon;
+revoke execute on function registrar_venta(uuid, numeric, numeric, text, text)  from public, anon;
+revoke execute on function anular_venta(uuid)                                   from public, anon;
+grant  execute on function cargar_stock(text, numeric, numeric)                 to authenticated;
+grant  execute on function registrar_venta(uuid, numeric, numeric, text, text)  to authenticated;
+grant  execute on function anular_venta(uuid)                                   to authenticated;
 
 -- ---------- Tiempo real: que todos vean los cambios al instante ----------
 alter publication supabase_realtime add table productos, ventas;

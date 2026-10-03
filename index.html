@@ -33,6 +33,16 @@
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
   .card h2 { margin: 0 0 12px; font-size: 1.1rem; }
   form.linea { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+  form.venta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  form.venta .ancho { grid-column: 1 / -1; }
+  .etiqueta { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  .formatos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .formatos label { display: block; }
+  .formatos input { position: absolute; opacity: 0; width: 0; }
+  .formatos span { display: block; text-align: center; padding: 10px 4px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; color: var(--text); cursor: pointer; background: #fff; }
+  .formatos input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .formatos input:focus-visible + span { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+  .resumen-venta { font-size: .9rem; color: var(--muted); }
   form.login { display: grid; gap: 10px; max-width: 360px; margin: 40px auto; }
   label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
   input, select { padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 1rem; width: 100%; background: #fff; color: var(--text); }
@@ -102,9 +112,9 @@
       <div class="card">
         <h2 id="tituloForm">Cargar producto</h2>
         <form class="linea" id="formProducto">
-          <label>Producto <input id="pNombre" required placeholder="Ej: Chipa x 1/2 kg"></label>
-          <label>Cantidad <input id="pCantidad" type="number" min="0" step="1" required></label>
-          <label>Precio de venta <input id="pPrecio" type="number" min="0" step="0.01" required></label>
+          <label>Producto <input id="pNombre" required placeholder="Ej: Chipa"></label>
+          <label>Kg <input id="pCantidad" type="number" min="0" step="0.001" required inputmode="decimal"></label>
+          <label>Precio por kg <input id="pPrecio" type="number" min="0" step="0.01" required inputmode="decimal"></label>
           <button class="primario" type="submit" id="btnProducto">Agregar</button>
         </form>
         <div class="error" id="errProducto"></div>
@@ -112,7 +122,7 @@
       <div class="card">
         <h2>Stock disponible</h2>
         <table>
-          <thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
+          <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Precio x kg</th><th class="num">Subtotal</th><th></th></tr></thead>
           <tbody id="tablaStock"></tbody>
         </table>
       </div>
@@ -122,18 +132,31 @@
     <section id="ventas" class="pestana">
       <div class="card">
         <h2>Cargar venta</h2>
-        <form class="linea" id="formVenta">
-          <label>Producto <select id="vProducto" required></select></label>
-          <label>Cantidad <input id="vCantidad" type="number" min="1" step="1" required></label>
-          <label>Precio unit. <input id="vPrecio" type="number" min="0" step="0.01" required></label>
-          <button class="primario" type="submit" id="btnVenta">Vender</button>
+        <form class="venta" id="formVenta">
+          <label class="ancho" id="campoProducto">Producto <select id="vProducto"></select></label>
+          <div class="ancho">
+            <span class="etiqueta">Formato</span>
+            <div class="formatos" id="formatos">
+              <label><input type="radio" name="formato" value="1" checked><span>1 kg</span></label>
+              <label><input type="radio" name="formato" value="0.5"><span>1/2 kg</span></label>
+              <label><input type="radio" name="formato" value="0.25"><span>1/4 kg</span></label>
+              <label><input type="radio" name="formato" value="otro"><span>Otro</span></label>
+            </div>
+          </div>
+          <label id="campoBolsas">Cantidad (bolsas) <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+          <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
+          <label>Total $ <input id="vTotal" type="number" min="0" step="0.01" required inputmode="decimal"></label>
+          <label class="ancho">A quién <input id="vCliente" list="clientes" placeholder="Nombre de la persona o negocio" autocomplete="off"></label>
+          <datalist id="clientes"></datalist>
+          <div class="ancho resumen-venta" id="resumenVenta"></div>
+          <button class="primario ancho" type="submit" id="btnVenta">Vender</button>
         </form>
         <div class="error" id="errVenta"></div>
       </div>
       <div class="card">
         <h2>Últimas ventas</h2>
         <table>
-          <thead><tr><th>Fecha</th><th>Producto</th><th class="num">Cant.</th><th class="num">Total</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>A quién</th><th>Formato</th><th class="num">Total</th><th></th></tr></thead>
           <tbody id="tablaVentas"></tbody>
         </table>
       </div>
@@ -152,6 +175,7 @@ const SUPABASE_KEY = 'sb_publishable_9quNETylXglsAZP0iRc6NQ_ydcZNXR_';
 const ULTIMAS_VENTAS = 200;
 const $ = id => document.getElementById(id);
 const dinero = n => Number(n).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+const kilos = n => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 }) + ' kg';
 const escapar = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let db = null;
@@ -239,7 +263,7 @@ function render() {
     ? productos.map(p => `
       <tr>
         <td>${escapar(p.nombre)}</td>
-        <td class="num ${p.cantidad === 0 ? 'sin-stock' : ''}">${p.cantidad}</td>
+        <td class="num ${Number(p.cantidad) <= 0 ? 'sin-stock' : ''}">${kilos(p.cantidad)}</td>
         <td class="num">${dinero(p.precio)}</td>
         <td class="num">${dinero(p.cantidad * p.precio)}</td>
         <td class="num">
@@ -249,18 +273,30 @@ function render() {
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay productos cargados</td></tr>';
 
+  // Selector de producto: si hay uno solo, se elige solo y no se muestra
   const seleccionado = $('vProducto').value;
   $('vProducto').innerHTML = '<option value="">Elegir…</option>' +
-    productos.map(p => `<option value="${p.id}" ${p.cantidad === 0 ? 'disabled' : ''}>${escapar(p.nombre)} (${p.cantidad} disp.)</option>`).join('');
-  $('vProducto').value = productos.some(p => p.id === seleccionado) ? seleccionado : '';
+    productos.map(p => `<option value="${p.id}" ${Number(p.cantidad) <= 0 ? 'disabled' : ''}>${escapar(p.nombre)} (${kilos(p.cantidad)} disp.)</option>`).join('');
+  if (productos.length === 1) $('vProducto').value = productos[0].id;
+  else $('vProducto').value = productos.some(p => p.id === seleccionado) ? seleccionado : '';
+  $('campoProducto').classList.toggle('oculto', productos.length === 1);
+
+  // Clientes anteriores para autocompletar "A quién"
+  const clientes = [...new Set(ventas.map(v => v.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  $('clientes').innerHTML = clientes.map(c => `<option value="${escapar(c)}">`).join('');
+
+  // Si alguien ya escribió un total a mano, una actualización en vivo no se lo pisa
+  actualizarVenta(!$('vTotal').value);
 
   $('tablaVentas').innerHTML = ventas.length
     ? ventas.map(v => `
       <tr>
         <td>${new Date(v.fecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
             <span class="quien">${escapar(v.vendedor)}</span></td>
-        <td>${escapar(v.nombre)}</td>
-        <td class="num">${v.cantidad}</td>
+        <td>${escapar(v.cliente || '—')}</td>
+        <td>${escapar(v.formato || kilos(v.cantidad))}
+            ${productos.length > 1 ? `<span class="quien">${escapar(v.nombre)}</span>` : ''}
+            ${v.formato && !/^1(\/[24])? kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
         <td class="num">${dinero(v.total)}</td>
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
@@ -271,7 +307,7 @@ function render() {
 $('formProducto').addEventListener('submit', async e => {
   e.preventDefault();
   const nombre = $('pNombre').value.trim();
-  const cantidad = parseInt($('pCantidad').value, 10);
+  const cantidad = parseFloat($('pCantidad').value);
   const precio = parseFloat($('pPrecio').value);
   if (!nombre || isNaN(cantidad) || cantidad < 0 || isNaN(precio) || precio < 0) {
     $('errProducto').textContent = 'Revisá los datos ingresados.';
@@ -279,7 +315,7 @@ $('formProducto').addEventListener('submit', async e => {
   }
   const ok = await accion($('btnProducto'), $('errProducto'), () => editandoId
     ? db.from('productos').update({ nombre, cantidad, precio }).eq('id', editandoId)
-    : db.rpc('cargar_stock', { p_nombre: nombre, p_cantidad: cantidad, p_precio: precio }));
+    : db.rpc('cargar_stock', { p_nombre: nombre, p_kg: cantidad, p_precio: precio }));
   if (ok) terminarEdicion();
 });
 
@@ -311,22 +347,66 @@ function borrarProducto(id, boton) {
 }
 
 // ----- Ventas -----
-$('vProducto').addEventListener('change', () => {
+const NOMBRES_FORMATO = { '1': '1 kg', '0.5': '1/2 kg', '0.25': '1/4 kg', 'otro': 'Otro' };
+
+// Lee el formulario de venta: producto, kg a descontar y descripción del formato
+function datosVenta() {
   const p = productos.find(p => p.id === $('vProducto').value);
-  $('vPrecio').value = p ? p.precio : '';
+  const formato = document.querySelector('input[name="formato"]:checked').value;
+  let kg, descripcion;
+  if (formato === 'otro') {
+    kg = parseFloat($('vKg').value);
+    descripcion = 'Otro';
+  } else {
+    const bolsas = parseInt($('vBolsas').value, 10);
+    kg = Number(formato) * bolsas;
+    descripcion = NOMBRES_FORMATO[formato] + (bolsas > 1 ? ` x${bolsas}` : '');
+  }
+  return { p, formato, kg: Math.round(kg * 1000) / 1000, descripcion };
+}
+
+// Recalcula el total sugerido (kg x precio por kg) y muestra cuánto stock queda
+function actualizarVenta(recalcularTotal = true) {
+  const { p, formato, kg } = datosVenta();
+  $('errVenta').textContent = '';
+  $('campoBolsas').classList.toggle('oculto', formato === 'otro');
+  $('campoKg').classList.toggle('oculto', formato !== 'otro');
+  if (!p || !(kg > 0)) {
+    $('resumenVenta').textContent = productos.length ? '' : 'Primero cargá stock en la pestaña Stock.';
+    return;
+  }
+  if (recalcularTotal) $('vTotal').value = Math.round(kg * Number(p.precio));
+  const queda = Number(p.cantidad) - kg;
+  $('resumenVenta').innerHTML = queda < 0
+    ? `<span class="sin-stock">Solo hay ${kilos(p.cantidad)} en stock.</span>`
+    : `Se descuentan ${kilos(kg)} · quedan ${kilos(queda)}`;
+}
+
+$('vProducto').addEventListener('change', () => actualizarVenta());
+$('formatos').addEventListener('change', () => {
+  actualizarVenta();
+  if (document.querySelector('input[name="formato"]:checked').value === 'otro') $('vKg').focus();
 });
+$('vBolsas').addEventListener('input', () => actualizarVenta());
+$('vKg').addEventListener('input', () => actualizarVenta());
 
 $('formVenta').addEventListener('submit', async e => {
   e.preventDefault();
-  const p = productos.find(p => p.id === $('vProducto').value);
-  const cantidad = parseInt($('vCantidad').value, 10);
-  const precio = parseFloat($('vPrecio').value);
+  const { p, kg, descripcion } = datosVenta();
+  const total = parseFloat($('vTotal').value);
   if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
-  if (isNaN(cantidad) || cantidad < 1) { $('errVenta').textContent = 'La cantidad tiene que ser al menos 1.'; return; }
-  if (isNaN(precio) || precio < 0) { $('errVenta').textContent = 'Revisá el precio.'; return; }
-  const ok = await accion($('btnVenta'), $('errVenta'),
-    () => db.rpc('registrar_venta', { p_producto: p.id, p_cantidad: cantidad, p_precio: precio }));
-  if (ok) $('formVenta').reset();
+  if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
+  if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${kilos(p.cantidad)} en stock.`; return; }
+  if (isNaN(total) || total < 0) { $('errVenta').textContent = 'Revisá el total.'; return; }
+  const ok = await accion($('btnVenta'), $('errVenta'), () => db.rpc('registrar_venta', {
+    p_producto: p.id, p_kg: kg, p_total: total, p_formato: descripcion, p_cliente: $('vCliente').value,
+  }));
+  if (ok) {
+    const productoId = $('vProducto').value;
+    $('formVenta').reset();
+    $('vProducto').value = productoId;
+    actualizarVenta();
+  }
 });
 
 // Anular una venta devuelve la cantidad al stock
