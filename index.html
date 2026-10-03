@@ -32,7 +32,7 @@
   section.pestana.activo { display: block; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
   .card h2 { margin: 0 0 12px; font-size: 1.1rem; }
-  form.linea { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+  form.linea { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
   form.venta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   form.venta .ancho { grid-column: 1 / -1; }
   .etiqueta { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
@@ -125,9 +125,16 @@
       <div class="card">
         <h2 id="tituloForm">Cargar producto</h2>
         <form class="linea" id="formProducto">
-          <label>Producto <input id="pNombre" required placeholder="Ej: Chipa"></label>
-          <label>Kg <input id="pCantidad" type="number" min="0" step="0.001" required inputmode="decimal"></label>
-          <label>Precio por kg <input id="pPrecio" type="number" min="0" step="0.01" required inputmode="decimal"></label>
+          <label>Producto <input id="pNombre" required placeholder="Ej: Chipa con membrillo" list="nombresProductos" autocomplete="off"></label>
+          <datalist id="nombresProductos"></datalist>
+          <label>Se mide en
+            <select id="pUnidad">
+              <option value="kg">Kilos</option>
+              <option value="unidad">Unidades</option>
+            </select>
+          </label>
+          <label><span id="lblCantidad">Kg</span> <input id="pCantidad" type="number" min="0" step="0.001" required inputmode="decimal"></label>
+          <label><span id="lblPrecio">Precio por kg</span> <input id="pPrecio" type="number" min="0" step="0.01" required inputmode="decimal"></label>
           <button class="primario" type="submit" id="btnProducto">Agregar</button>
         </form>
         <div class="error" id="errProducto"></div>
@@ -135,13 +142,13 @@
       <div class="card">
         <h2>Stock disponible</h2>
         <table>
-          <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Precio x kg</th><th class="num">Subtotal</th><th></th></tr></thead>
+          <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
           <tbody id="tablaStock"></tbody>
         </table>
       </div>
       <div class="card">
         <h2>Formatos de venta</h2>
-        <p class="ayuda">Los kg son lo que se descuenta del stock en cada venta. Si dejás el precio fijo vacío, se calcula con el precio por kg.</p>
+        <p class="ayuda">Para los productos que se miden en kilos. Los kg son lo que se descuenta del stock en cada venta. Si dejás el precio fijo vacío, se calcula con el precio por kg del producto.</p>
         <table class="tabla-formatos">
           <thead><tr><th>Formato</th><th>Kg</th><th>Precio fijo</th><th></th></tr></thead>
           <tbody id="tablaFormatos"></tbody>
@@ -164,11 +171,11 @@
         <h2>Cargar venta</h2>
         <form class="venta" id="formVenta">
           <label class="ancho" id="campoProducto">Producto <select id="vProducto"></select></label>
-          <div class="ancho">
+          <div class="ancho" id="bloqueFormatos">
             <span class="etiqueta">Formato</span>
             <div class="formatos" id="formatos"></div>
           </div>
-          <label id="campoBolsas">Cantidad (bolsas) <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+          <label id="campoBolsas"><span id="lblBolsas">Cantidad (bolsas)</span> <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
           <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
           <label>Total $ <input id="vTotal" type="number" min="0" step="0.01" required inputmode="decimal"></label>
           <label class="ancho">A quién <input id="vCliente" list="clientes" placeholder="Nombre de la persona o negocio" autocomplete="off"></label>
@@ -201,6 +208,10 @@ const ULTIMAS_VENTAS = 200;
 const $ = id => document.getElementById(id);
 const dinero = n => Number(n).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
 const kilos = n => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 3 }) + ' kg';
+// Cantidad con su unidad: "2,5 kg" o "3 unidades"
+const cant = (n, unidad) => unidad === 'unidad'
+  ? `${Number(n).toLocaleString('es-AR')} ${Number(n) === 1 ? 'unidad' : 'unidades'}`
+  : kilos(n);
 const escapar = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let db = null;
@@ -307,8 +318,8 @@ function render() {
     ? productos.map(p => `
       <tr>
         <td>${escapar(p.nombre)}</td>
-        <td class="num ${Number(p.cantidad) <= 0 ? 'sin-stock' : ''}">${kilos(p.cantidad)}</td>
-        <td class="num">${dinero(p.precio)}</td>
+        <td class="num ${Number(p.cantidad) <= 0 ? 'sin-stock' : ''}">${cant(p.cantidad, p.unidad)}</td>
+        <td class="num">${dinero(p.precio)}<span class="quien">por ${p.unidad === 'unidad' ? 'unidad' : 'kg'}</span></td>
         <td class="num">${dinero(p.cantidad * p.precio)}</td>
         <td class="num">
           <button class="link editar" onclick="editarProducto('${p.id}')">Editar</button>
@@ -339,12 +350,16 @@ function render() {
       </tr>`).join('');
   }
 
-  // Selector de producto: si hay uno solo, se elige solo y no se muestra
+  // Nombres existentes para autocompletar al cargar stock
+  $('nombresProductos').innerHTML = productos.map(p => `<option value="${escapar(p.nombre)}">`).join('');
+
+  // Selector de producto: mantiene el elegido; si no hay, el primero con stock.
+  // Si hay un solo producto, se elige solo y no se muestra.
   const seleccionado = $('vProducto').value;
   $('vProducto').innerHTML = '<option value="">Elegir…</option>' +
-    productos.map(p => `<option value="${p.id}" ${Number(p.cantidad) <= 0 ? 'disabled' : ''}>${escapar(p.nombre)} (${kilos(p.cantidad)} disp.)</option>`).join('');
-  if (productos.length === 1) $('vProducto').value = productos[0].id;
-  else $('vProducto').value = productos.some(p => p.id === seleccionado) ? seleccionado : '';
+    productos.map(p => `<option value="${p.id}" ${Number(p.cantidad) <= 0 ? 'disabled' : ''}>${escapar(p.nombre)} (${cant(p.cantidad, p.unidad)} disp.)</option>`).join('');
+  const conStock = productos.filter(p => Number(p.cantidad) > 0);
+  $('vProducto').value = conStock.some(p => p.id === seleccionado) ? seleccionado : (conStock[0]?.id || '');
   $('campoProducto').classList.toggle('oculto', productos.length === 1);
 
   // Clientes anteriores para autocompletar "A quién"
@@ -362,7 +377,7 @@ function render() {
         <td>${escapar(v.cliente || '—')}</td>
         <td>${escapar(v.formato || kilos(v.cantidad))}
             ${productos.length > 1 ? `<span class="quien">${escapar(v.nombre)}</span>` : ''}
-            ${v.formato && !/^[\d\/,.]+ kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
+            ${v.unidad !== 'unidad' && v.formato && !/^[\d\/,.]+ kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
         <td class="num">${dinero(v.total)}</td>
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
@@ -370,18 +385,42 @@ function render() {
 }
 
 // ----- Productos -----
+// Ajusta los textos del formulario según se mida en kilos o en unidades
+function actualizarFormProducto() {
+  const porUnidad = $('pUnidad').value === 'unidad';
+  $('lblCantidad').textContent = porUnidad ? 'Unidades' : 'Kg';
+  $('lblPrecio').textContent = porUnidad ? 'Precio por unidad' : 'Precio por kg';
+  $('pCantidad').step = porUnidad ? '1' : '0.001';
+  $('pCantidad').inputMode = porUnidad ? 'numeric' : 'decimal';
+}
+$('pUnidad').addEventListener('change', actualizarFormProducto);
+
+// Si el nombre es de un producto existente, la unidad es la de ese producto
+$('pNombre').addEventListener('input', () => {
+  if (editandoId) return;
+  const existente = productos.find(p => p.nombre.toLowerCase() === $('pNombre').value.trim().toLowerCase());
+  $('pUnidad').disabled = !!existente;
+  if (existente) $('pUnidad').value = existente.unidad;
+  actualizarFormProducto();
+});
+
 $('formProducto').addEventListener('submit', async e => {
   e.preventDefault();
   const nombre = $('pNombre').value.trim();
+  const unidad = $('pUnidad').value;
   const cantidad = parseFloat($('pCantidad').value);
   const precio = parseFloat($('pPrecio').value);
   if (!nombre || isNaN(cantidad) || cantidad < 0 || isNaN(precio) || precio < 0) {
     $('errProducto').textContent = 'Revisá los datos ingresados.';
     return;
   }
+  if (unidad === 'unidad' && !Number.isInteger(cantidad)) {
+    $('errProducto').textContent = 'Las unidades tienen que ser un número entero.';
+    return;
+  }
   const ok = await accion($('btnProducto'), $('errProducto'), () => editandoId
-    ? db.from('productos').update({ nombre, cantidad, precio }).eq('id', editandoId)
-    : db.rpc('cargar_stock', { p_nombre: nombre, p_kg: cantidad, p_precio: precio }));
+    ? db.from('productos').update({ nombre, cantidad, precio, unidad }).eq('id', editandoId)
+    : db.rpc('cargar_stock', { p_nombre: nombre, p_cantidad: cantidad, p_precio: precio, p_unidad: unidad }));
   if (ok) terminarEdicion();
 });
 
@@ -389,8 +428,11 @@ function editarProducto(id) {
   const p = productos.find(p => p.id === id);
   editandoId = id;
   $('pNombre').value = p.nombre;
+  $('pUnidad').value = p.unidad;
+  $('pUnidad').disabled = false;
   $('pCantidad').value = p.cantidad;
   $('pPrecio').value = p.precio;
+  actualizarFormProducto();
   $('tituloForm').textContent = 'Editar producto';
   $('btnProducto').textContent = 'Guardar';
   $('pNombre').focus();
@@ -398,6 +440,8 @@ function editarProducto(id) {
 function terminarEdicion() {
   editandoId = null;
   $('formProducto').reset();
+  $('pUnidad').disabled = false;
+  actualizarFormProducto();
   $('tituloForm').textContent = 'Cargar producto';
   $('btnProducto').textContent = 'Agregar';
 }
@@ -451,9 +495,14 @@ $('btnAgregarFormato').addEventListener('click', async () => {
 });
 
 // ----- Ventas -----
-// Lee el formulario de venta: producto, formato, kg a descontar, total sugerido y descripción
+// Lee el formulario de venta: producto, formato, cantidad a descontar (kg o unidades,
+// según el producto), total sugerido y descripción
 function datosVenta() {
   const p = productos.find(p => p.id === $('vProducto').value);
+  if (p && p.unidad === 'unidad') {
+    const n = parseInt($('vBolsas').value, 10);
+    return { p, f: null, formato: 'unidad', kg: n, sugerido: n * Number(p.precio), descripcion: n === 1 ? '1 unidad' : `${n} unidades` };
+  }
   const formato = document.querySelector('input[name="formato"]:checked')?.value || 'otro';
   const f = formatos.find(f => f.id === formato);
   let kg, sugerido, descripcion;
@@ -474,6 +523,9 @@ function datosVenta() {
 function actualizarVenta(recalcularTotal = true) {
   const { p, f, formato, kg, sugerido } = datosVenta();
   $('errVenta').textContent = '';
+  // Productos por unidad: sin formatos, solo cuántas unidades
+  $('bloqueFormatos').classList.toggle('oculto', formato === 'unidad');
+  $('lblBolsas').textContent = formato === 'unidad' ? 'Cantidad (unidades)' : 'Cantidad (bolsas)';
   $('campoBolsas').classList.toggle('oculto', formato === 'otro');
   $('campoKg').classList.toggle('oculto', formato !== 'otro');
   if (recalcularTotal && sugerido >= 0) $('vTotal').value = Math.round(sugerido);
@@ -485,10 +537,10 @@ function actualizarVenta(recalcularTotal = true) {
     $('resumenVenta').textContent = productos.length ? '' : 'Primero cargá stock en la pestaña Stock.';
     return;
   }
-  const queda = Number(p.cantidad) - kg;
+  const queda = Math.round((Number(p.cantidad) - kg) * 1000) / 1000;
   $('resumenVenta').innerHTML = queda < 0
-    ? `<span class="sin-stock">Solo hay ${kilos(p.cantidad)} en stock.</span>`
-    : `Se descuentan ${kilos(kg)} · quedan ${kilos(queda)}`;
+    ? `<span class="sin-stock">Solo hay ${cant(p.cantidad, p.unidad)} en stock.</span>`
+    : `Se descuentan ${cant(kg, p.unidad)} de ${escapar(p.nombre)} · quedan ${cant(queda, p.unidad)}`;
 }
 
 $('vProducto').addEventListener('change', () => actualizarVenta());
@@ -506,7 +558,7 @@ $('formVenta').addEventListener('submit', async e => {
   if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
   if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuántos kg pesa "${f.nombre}" (Stock → Formatos de venta).`; return; }
   if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
-  if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${kilos(p.cantidad)} en stock.`; return; }
+  if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${cant(p.cantidad, p.unidad)} en stock.`; return; }
   if (isNaN(total) || total < 0) { $('errVenta').textContent = 'Revisá el total.'; return; }
   const ok = await accion($('btnVenta'), $('errVenta'), () => db.rpc('registrar_venta', {
     p_producto: p.id, p_kg: kg, p_total: total, p_formato: descripcion, p_cliente: $('vCliente').value,
