@@ -81,6 +81,14 @@ begin
         precio   = excluded.precio;
 end $$;
 
+-- Compatibilidad con versiones anteriores de la página (que mandan p_kg en vez de p_cantidad)
+create function cargar_stock(p_nombre text, p_kg numeric, p_precio numeric)
+returns void language sql set search_path = public as $$
+  select cargar_stock(p_nombre => p_nombre, p_cantidad => p_kg, p_precio => p_precio, p_unidad => 'kg');
+$$;
+revoke execute on function cargar_stock(text, numeric, numeric) from public, anon;
+grant  execute on function cargar_stock(text, numeric, numeric) to authenticated;
+
 -- Registrar venta: descuenta del stock en una sola operación (evita vender lo que no hay
 -- aunque dos personas carguen ventas al mismo tiempo). p_kg es la cantidad en la unidad
 -- del producto (kg o unidades).

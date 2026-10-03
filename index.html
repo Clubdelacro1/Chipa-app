@@ -20,7 +20,8 @@
   header .usuario button { background: rgba(255,255,255,.2); color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   main { max-width: 900px; margin: 0 auto; padding: 16px; }
   .oculto { display: none !important; }
-  .totales { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .totales { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+  .actualizado { display: block; margin: 0 0 12px auto; background: none; border: 0; padding: 4px; font-size: .8rem; color: var(--muted); cursor: pointer; }
   .total { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
   .total span { display: block; color: var(--muted); font-size: .85rem; }
   .total strong { font-size: 1.5rem; }
@@ -114,6 +115,7 @@
       <div class="total"><span>Valor total del stock</span><strong id="totalStock">$0</strong></div>
       <div class="total ventas"><span>Total vendido</span><strong id="totalVentas">$0</strong></div>
     </div>
+    <button class="actualizado" id="btnActualizar" type="button">Actualizando…</button>
 
     <div class="tabs">
       <button data-tab="stock" class="activo">Stock</button>
@@ -231,6 +233,10 @@ function mostrar(pantalla) {
 // por falta de sesión no llegó a hacer nada, así que reintentarlo es seguro.
 async function conSesion(fn) {
   const res = await fn();
+  // La función pedida no existe: este celular tiene guardada una versión vieja de la página
+  if (res.error && res.error.code === 'PGRST202') {
+    return { error: { message: 'La app se actualizó: recargá la página para seguir.' } };
+  }
   const sinSesion = res.error && (res.status === 401 || res.error.code === '42501');
   if (!sinSesion) return res;
   const { data } = await db.auth.refreshSession();
@@ -285,16 +291,28 @@ function confirmarEnBoton(boton, fn) {
 
 // ----- Datos -----
 async function cargarDatos() {
+  // Sin sesión la base devuelve listas vacías (sin error) y la app mostraría todo en cero:
+  // primero nos aseguramos de tener sesión, renovándola si hace falta.
+  let { data: { session } } = await db.auth.getSession();
+  if (!session) ({ data: { session } } = await db.auth.refreshSession());
+  if (!session) { await db.auth.signOut(); return; }
+
   const [p, v, r, f] = await Promise.all([
     db.from('productos').select('*').order('nombre'),
     db.from('ventas').select('*').order('fecha', { ascending: false }).limit(ULTIMAS_VENTAS),
     db.from('resumen').select('*').single(),
     db.from('formatos').select('*').order('orden').order('nombre'),
   ]);
-  if (p.error || v.error || r.error || f.error) { console.error(p.error || v.error || r.error || f.error); return; }
+  if (p.error || v.error || r.error || f.error) {
+    console.error(p.error || v.error || r.error || f.error);
+    $('btnActualizar').textContent = 'No se pudo actualizar · tocá para reintentar';
+    return;
+  }
   productos = p.data;
   ventas = v.data;
   formatos = f.data;
+  $('btnActualizar').textContent = 'Actualizado a las ' +
+    new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' · tocá para actualizar';
   $('totalStock').textContent = dinero(r.data.total_stock);
   $('totalVentas').textContent = dinero(r.data.total_ventas);
   render();
@@ -615,6 +633,16 @@ async function alCambiarSesion(sesion) {
 // Al volver a la app después de un rato, trae los datos frescos
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && canal) cargarDatos();
+});
+
+// Además de los avisos en vivo, refresca cada 20 segundos mientras la app está a la vista
+// (en el celular la conexión en vivo se corta al bloquear la pantalla o cambiar de app)
+setInterval(() => {
+  if (document.visibilityState === 'visible' && canal) cargarDatos();
+}, 20000);
+$('btnActualizar').addEventListener('click', () => {
+  $('btnActualizar').textContent = 'Actualizando…';
+  cargarDatos();
 });
 
 // ----- Inicio -----
