@@ -42,6 +42,8 @@
   button.link { background: none; border: 0; cursor: pointer; padding: 4px; font-size: .9rem; }
   button.link.borrar { color: var(--danger); }
   button.link.editar { color: var(--accent-dark); }
+  button.link.confirmando { background: var(--danger); color: #fff; border-radius: 6px; font-weight: 600; }
+  .mensaje { background: #fdecea; color: var(--danger); border: 1px solid #f3c2bb; border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
   th { font-size: .8rem; color: var(--muted); font-weight: 600; }
@@ -84,6 +86,7 @@
 
   <!-- APP -->
   <div class="oculto" id="pantallaApp">
+    <div class="mensaje oculto" id="mensaje"></div>
     <div class="totales">
       <div class="total"><span>Valor total del stock</span><strong id="totalStock">$0</strong></div>
       <div class="total ventas"><span>Total vendido</span><strong id="totalVentas">$0</strong></div>
@@ -179,6 +182,31 @@ async function accion(boton, errorEl, fn) {
   }
 }
 
+// Muestra un error arriba de todo durante unos segundos
+let mensajeTimer = null;
+function mostrarError(texto) {
+  $('mensaje').textContent = texto;
+  $('mensaje').classList.remove('oculto');
+  clearTimeout(mensajeTimer);
+  mensajeTimer = setTimeout(() => $('mensaje').classList.add('oculto'), 6000);
+}
+
+// Confirmación en el propio botón: el primer toque pide "¿Seguro?", el segundo ejecuta.
+// (No usamos confirm() porque algunos navegadores de celular lo bloquean)
+function confirmarEnBoton(boton, fn) {
+  if (boton.dataset.confirmando) return fn();
+  boton.dataset.confirmando = '1';
+  boton.dataset.texto = boton.textContent;
+  boton.textContent = '¿Seguro?';
+  boton.classList.add('confirmando');
+  setTimeout(() => {
+    if (!boton.isConnected) return;
+    delete boton.dataset.confirmando;
+    boton.textContent = boton.dataset.texto;
+    boton.classList.remove('confirmando');
+  }, 4000);
+}
+
 // ----- Datos -----
 async function cargarDatos() {
   const [p, v, r] = await Promise.all([
@@ -216,7 +244,7 @@ function render() {
         <td class="num">${dinero(p.cantidad * p.precio)}</td>
         <td class="num">
           <button class="link editar" onclick="editarProducto('${p.id}')">Editar</button>
-          <button class="link borrar" onclick="borrarProducto('${p.id}')">Borrar</button>
+          <button class="link borrar" onclick="borrarProducto('${p.id}', this)">Borrar</button>
         </td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay productos cargados</td></tr>';
@@ -234,7 +262,7 @@ function render() {
         <td>${escapar(v.nombre)}</td>
         <td class="num">${v.cantidad}</td>
         <td class="num">${dinero(v.total)}</td>
-        <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}')">Anular</button></td>
+        <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay ventas</td></tr>';
 }
@@ -271,13 +299,15 @@ function terminarEdicion() {
   $('tituloForm').textContent = 'Cargar producto';
   $('btnProducto').textContent = 'Agregar';
 }
-async function borrarProducto(id) {
-  const p = productos.find(p => p.id === id);
-  if (!confirm(`¿Borrar "${p.nombre}" del stock? Las ventas ya registradas se mantienen.`)) return;
-  if (editandoId === id) terminarEdicion();
-  const { error } = await db.from('productos').delete().eq('id', id);
-  if (error) alert(error.message);
-  await cargarDatos();
+// Borrar un producto no borra sus ventas ya registradas
+function borrarProducto(id, boton) {
+  confirmarEnBoton(boton, async () => {
+    boton.disabled = true;
+    if (editandoId === id) terminarEdicion();
+    const { error } = await db.from('productos').delete().eq('id', id);
+    if (error) mostrarError(error.message);
+    await cargarDatos();
+  });
 }
 
 // ----- Ventas -----
@@ -299,12 +329,14 @@ $('formVenta').addEventListener('submit', async e => {
   if (ok) $('formVenta').reset();
 });
 
-async function anularVenta(id) {
-  const v = ventas.find(v => v.id === id);
-  if (!confirm(`¿Anular la venta de ${v.cantidad} x "${v.nombre}"? Se devuelve al stock.`)) return;
-  const { error } = await db.rpc('anular_venta', { p_venta: id });
-  if (error) alert(error.message);
-  await cargarDatos();
+// Anular una venta devuelve la cantidad al stock
+function anularVenta(id, boton) {
+  confirmarEnBoton(boton, async () => {
+    boton.disabled = true;
+    const { error } = await db.rpc('anular_venta', { p_venta: id });
+    if (error) mostrarError(error.message);
+    await cargarDatos();
+  });
 }
 
 // ----- Pestañas -----
