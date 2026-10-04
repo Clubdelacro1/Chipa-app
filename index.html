@@ -36,7 +36,9 @@
   .totales.cajas .total { padding: 10px; }
   .totales.cajas strong { font-size: 1.1rem; }
   .total.debe strong { color: var(--danger); }
-  .total-venta { grid-column: 1 / -1; font-size: 1.05rem; }
+  .total-venta { font-size: 1.05rem; align-self: center; }
+  .regalo { justify-self: end; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font-size: .9rem; cursor: pointer; color: var(--text); }
+  .regalo-txt { display: block; font-size: .85rem; color: var(--accent-dark); font-weight: 600; }
   .total-venta strong { font-size: 1.25rem; }
   .medios { grid-template-columns: 1fr 1fr !important; }
   .debe-txt { display: block; font-size: .8rem; color: var(--danger); font-weight: 600; }
@@ -220,6 +222,7 @@
           <label id="campoBolsas"><span id="lblBolsas">Cantidad (bolsas)</span> <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
           <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
           <div class="total-venta" id="totalVenta"></div>
+          <button type="button" class="regalo" id="btnRegalo">🎁 Regalo</button>
           <label>Pagó $ <input id="vPago" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <label>Debe $ <input id="vDebe" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <div class="ancho" id="bloqueMedio">
@@ -465,7 +468,7 @@ function render() {
         <td>${escapar(v.formato || kilos(v.cantidad))}
             ${productos.length > 1 ? `<span class="quien">${escapar(v.nombre)}</span>` : ''}
             ${v.unidad !== 'unidad' && v.formato && !/^[\d\/,.]+ kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
-        <td class="num">${dinero(v.total)}
+        <td class="num">${Number(v.total) > 0 ? dinero(v.total) : '🎁 Regalo'}
             ${Number(v.total) > Number(v.pagado) ? `<span class="debe-txt">Debe ${dinero(v.total - v.pagado)}</span>` : ''}
             <span class="quien">${textoMedios(v.pagos)}</span></td>
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
@@ -685,6 +688,7 @@ function actualizarVenta(recalcularTotal = true) {
     totalVenta = Math.round(sugerido);
     $('vPago').value = totalVenta;
     $('vDebe').value = 0;
+    tocado = { pago: false, debe: false };
   }
   mostrarTotalVenta();
   if (f && f.kg == null) {
@@ -701,26 +705,42 @@ function actualizarVenta(recalcularTotal = true) {
     : `Se descuentan ${cant(kg, p.unidad)} de ${escapar(p.nombre)} · quedan ${cant(queda, p.unidad)}`;
 }
 
-// Total de la venta = pagó + debe. Al editar uno, el otro se ajusta para mantener el total;
-// si lo escrito supera el total, el total pasa a ser ese número (otro precio).
+// Total de la venta = pagó + debe. Al editar uno, el otro se ajusta para mantener el total,
+// salvo que ese otro ya lo haya escrito la persona: ahí se respetan los dos números
+// (así se puede poner 0 y 0 para un regalo, o un descuento).
+// Si lo escrito supera el total, el total pasa a ser ese número (otro precio).
 let totalVenta = 0;
+let tocado = { pago: false, debe: false };
 const numero = id => Math.max(0, parseFloat($(id).value) || 0);
 function mostrarTotalVenta() {
   const pago = numero('vPago');
-  $('totalVenta').innerHTML = `Total de la venta: <strong>${dinero(pago + numero('vDebe'))}</strong>`;
+  const total = pago + numero('vDebe');
+  // Total en $0 = regalo: solo descuenta del stock
+  $('totalVenta').innerHTML = total > 0
+    ? `Total: <strong>${dinero(total)}</strong>`
+    : `Total: <strong>$0</strong><span class="regalo-txt">🎁 Regalo · solo se descuenta del stock</span>`;
+  $('btnVenta').textContent = total > 0 ? 'Vender' : 'Registrar regalo';
   // Si no pagó nada no hace falta elegir cómo
   $('bloqueMedio').classList.toggle('oculto', !(pago > 0));
 }
+$('btnRegalo').addEventListener('click', () => {
+  $('vPago').value = 0;
+  $('vDebe').value = 0;
+  tocado = { pago: true, debe: true };
+  mostrarTotalVenta();
+});
 $('vPago').addEventListener('input', () => {
+  tocado.pago = true;
   const pago = numero('vPago');
   if (pago > totalVenta) totalVenta = pago;
-  $('vDebe').value = Math.round((totalVenta - pago) * 100) / 100;
+  if (!tocado.debe) $('vDebe').value = Math.round((totalVenta - pago) * 100) / 100;
   mostrarTotalVenta();
 });
 $('vDebe').addEventListener('input', () => {
+  tocado.debe = true;
   const debe = numero('vDebe');
   if (debe > totalVenta) totalVenta = debe;
-  $('vPago').value = Math.round((totalVenta - debe) * 100) / 100;
+  if (!tocado.pago) $('vPago').value = Math.round((totalVenta - debe) * 100) / 100;
   mostrarTotalVenta();
 });
 
@@ -742,7 +762,6 @@ $('formVenta').addEventListener('submit', async e => {
   if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuántos kg pesa "${f.nombre}" (Stock → Formatos de venta).`; return; }
   if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
   if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${cant(p.cantidad, p.unidad)} en stock.`; return; }
-  if (pago + debe <= 0) { $('errVenta').textContent = 'Poné cuánto pagó o cuánto debe.'; return; }
   if (pago > 0 && !medio) { $('errVenta').textContent = 'Elegí si pagó en efectivo o por transferencia.'; return; }
   if (debe > 0 && !$('vCliente').value.trim()) { $('errVenta').textContent = 'Si queda debiendo, poné a quién se le vendió.'; return; }
   const ok = await accion($('btnVenta'), $('errVenta'), () => db.rpc('registrar_venta', {
@@ -818,7 +837,7 @@ $('btnDescargar').addEventListener('click', async () => {
       'Total $': Number(v.total),
       'Pagó $': Number(v.pagado),
       'Debe $': Number(v.total) - Number(v.pagado),
-      'Medio de pago': textoMedios(v.pagos, false),
+      'Medio de pago': Number(v.total) > 0 ? textoMedios(v.pagos, false) : 'Regalo',
       'A quién': v.cliente || '',
       'Cargó': v.vendedor || '',
     })), { header: ['Fecha', 'Producto', 'Formato', 'Cantidad', 'Unidad', 'Total $', 'Pagó $', 'Debe $', 'Medio de pago', 'A quién', 'Cargó'] });
@@ -853,10 +872,14 @@ $('btnDescargar').addEventListener('click', async () => {
     // Resumen: totales generales y lo vendido por producto
     const porProducto = {};
     for (const v of todas) {
-      const r = porProducto[v.nombre] ??= { 'Producto': v.nombre, 'Cantidad vendida': 0, 'Unidad': unidadTexto(v.unidad), 'Ventas': 0, 'Total vendido $': 0 };
-      r['Cantidad vendida'] += Number(v.cantidad);
-      r['Ventas'] += 1;
-      r['Total vendido $'] += Number(v.total);
+      const r = porProducto[v.nombre] ??= { 'Producto': v.nombre, 'Cantidad vendida': 0, 'Unidad': unidadTexto(v.unidad), 'Ventas': 0, 'Total vendido $': 0, 'Regalado': 0 };
+      if (Number(v.total) > 0) {
+        r['Cantidad vendida'] += Number(v.cantidad);
+        r['Ventas'] += 1;
+        r['Total vendido $'] += Number(v.total);
+      } else {
+        r['Regalado'] += Number(v.cantidad);
+      }
     }
     const valorStock = productos.reduce((s, p) => s + Number(p.cantidad) * Number(p.precio), 0);
     const totalVendido = todas.reduce((s, v) => s + Number(v.total), 0);
@@ -872,15 +895,15 @@ $('btnDescargar').addEventListener('click', async () => {
       ['Cobrado sin dato del medio $', cobradoPor(null)],
       ['Por cobrar (deben) $', todas.reduce((s, v) => s + Number(v.total) - Number(v.pagado), 0)],
       [],
-      ['Producto', 'Cantidad vendida', 'Unidad', 'Ventas', 'Total vendido $'],
-      ...Object.values(porProducto).map(r => [r['Producto'], Math.round(r['Cantidad vendida'] * 1000) / 1000, r['Unidad'], r['Ventas'], r['Total vendido $']]),
+      ['Producto', 'Cantidad vendida', 'Unidad', 'Ventas', 'Total vendido $', 'Regalado'],
+      ...Object.values(porProducto).map(r => [r['Producto'], Math.round(r['Cantidad vendida'] * 1000) / 1000, r['Unidad'], r['Ventas'], r['Total vendido $'], Math.round(r['Regalado'] * 1000) / 1000]),
     ]);
 
     // Anchos de columna para que se lea bien al abrirlo
     hojaVentas['!cols'] = [18, 22, 16, 10, 10, 12, 12, 12, 18, 24, 26].map(wch => ({ wch }));
     hojaCobros['!cols'] = [18, 12, 14, 24, 22, 16, 26].map(wch => ({ wch }));
     hojaStock['!cols'] = [24, 10, 10, 12, 10, 14].map(wch => ({ wch }));
-    hojaResumen['!cols'] = [30, 18, 10, 8, 16].map(wch => ({ wch }));
+    hojaResumen['!cols'] = [30, 18, 10, 8, 16, 10].map(wch => ({ wch }));
 
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hojaResumen, 'Resumen');
