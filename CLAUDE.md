@@ -12,10 +12,12 @@ App interna de un emprendimiento de chipa para cargar stock y ventas. La usan va
 ## Datos
 
 - `productos`: stock. `unidad` es `'kg'` (chipas) o `'unidad'` (panes). `cantidad` y `precio` están en esa unidad.
-- `ventas`: cada venta guarda nombre del producto, cantidad, unidad, total, formato, cliente ("A quién") y vendedor (email de quien la cargó).
+- `ventas`: cada venta guarda nombre del producto, cantidad, unidad, total, pagado (debe = total − pagado), formato, cliente ("A quién") y vendedor (email de quien la cargó).
+- `pagos`: cada cobro con su medio (`efectivo` / `transferencia`; `null` = ventas de antes de existir el medio). Se crea al vender (lo que pagó en el momento) y con `registrar_cobro` al cobrar deudas. Las "cajas" se calculan desde acá.
+- `deudas`: vista con las ventas que todavía deben algo (lista "Por cobrar").
 - `formatos`: botones de venta para productos en kg (1 kg, 1/2 kg, 10 kg, 12 unidades = 0,36 kg, etc.), con precio fijo opcional. Se editan desde la app (Stock → Formatos de venta).
-- `resumen`: vista con el valor total del stock y el total vendido.
-- Las operaciones que tocan stock pasan por funciones en la base para que sean atómicas: `cargar_stock`, `registrar_venta` (descuenta y valida que alcance), `anular_venta` (devuelve al stock).
+- `resumen`: vista con el valor del stock, total vendido, cobrado en efectivo / transferencia / sin dato y total por cobrar.
+- Las operaciones que tocan stock o plata pasan por funciones en la base para que sean atómicas: `cargar_stock`, `registrar_venta` (descuenta, valida que alcance y registra el pago), `registrar_cobro` (cobra deuda, no deja cobrar de más), `anular_venta` (devuelve al stock; sus pagos se borran en cascada).
 - Seguridad: RLS; solo usuarios logueados leen y escriben. Los usuarios se crean a mano en Supabase (Authentication → Users); el registro público está desactivado.
 
 ## Reglas al hacer cambios

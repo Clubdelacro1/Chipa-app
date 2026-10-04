@@ -32,6 +32,21 @@
   main { max-width: 900px; margin: 0 auto; padding: 16px; }
   .oculto { display: none !important; }
   .totales { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+  .totales.cajas { grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .totales.cajas .total { padding: 10px; }
+  .totales.cajas strong { font-size: 1.1rem; }
+  .total.debe strong { color: var(--danger); }
+  .total-venta { grid-column: 1 / -1; font-size: 1.05rem; }
+  .total-venta strong { font-size: 1.25rem; }
+  .medios { grid-template-columns: 1fr 1fr !important; }
+  .debe-txt { display: block; font-size: .8rem; color: var(--danger); font-weight: 600; }
+  .deudor { border-bottom: 1px solid var(--border); padding: 10px 0; }
+  .deudor:last-child { border-bottom: 0; }
+  .deudor-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .deudor-cab strong { font-size: 1rem; }
+  .deuda { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); padding: 4px 0; }
+  .cobro { display: grid; grid-template-columns: 1fr auto; gap: 8px; background: var(--bg); border-radius: 8px; padding: 10px; margin: 4px 0 8px; }
+  .cobro .formatos { grid-column: 1 / -1; }
   .barra-datos { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .actualizado { background: none; border: 0; padding: 4px; font-size: .8rem; color: var(--muted); cursor: pointer; text-align: right; }
   .descargar { background: var(--card); border: 1px solid var(--accent); color: var(--accent-dark); border-radius: 8px; padding: 7px 12px; font-size: .9rem; font-weight: 600; cursor: pointer; }
@@ -88,6 +103,8 @@
     form.linea label:first-child { grid-column: 1 / -1; }
     form.linea button { grid-column: 1 / -1; }
     .total strong { font-size: 1.2rem; }
+    .totales.cajas strong { font-size: .95rem; }
+    .totales.cajas span { font-size: .75rem; }
     th, td { padding: 6px 3px; font-size: .9rem; }
     /* Formatos de venta: cada uno como ficha (nombre arriba; kg, precio y botones abajo) */
     .tabla-formatos thead { display: none; }
@@ -129,6 +146,12 @@
       <div class="total"><span>Valor total del stock</span><strong id="totalStock">$0</strong></div>
       <div class="total ventas"><span>Total vendido</span><strong id="totalVentas">$0</strong></div>
     </div>
+    <div class="totales cajas">
+      <div class="total"><span>💵 Efectivo</span><strong id="totalEfectivo">$0</strong></div>
+      <div class="total"><span>🏦 Transf.</span><strong id="totalTransferencia">$0</strong></div>
+      <div class="total debe"><span>Por cobrar</span><strong id="totalDebe">$0</strong></div>
+    </div>
+    <p class="ayuda oculto" id="notaSinMedio"></p>
     <div class="barra-datos">
       <button class="descargar" id="btnDescargar" type="button">⬇ Descargar Excel</button>
       <button class="actualizado" id="btnActualizar" type="button">Actualizando…</button>
@@ -196,13 +219,27 @@
           </div>
           <label id="campoBolsas"><span id="lblBolsas">Cantidad (bolsas)</span> <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
           <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
-          <label>Total $ <input id="vTotal" type="number" min="0" step="0.01" required inputmode="decimal"></label>
+          <div class="total-venta" id="totalVenta"></div>
+          <label>Pagó $ <input id="vPago" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <label>Debe $ <input id="vDebe" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <div class="ancho" id="bloqueMedio">
+            <span class="etiqueta">¿Cómo pagó?</span>
+            <div class="formatos medios">
+              <label><input type="radio" name="medio" value="efectivo"><span>💵 Efectivo</span></label>
+              <label><input type="radio" name="medio" value="transferencia"><span>🏦 Transferencia</span></label>
+            </div>
+          </div>
           <label class="ancho">A quién <input id="vCliente" list="clientes" placeholder="Nombre de la persona o negocio" autocomplete="off"></label>
           <datalist id="clientes"></datalist>
           <div class="ancho resumen-venta" id="resumenVenta"></div>
           <button class="primario ancho" type="submit" id="btnVenta">Vender</button>
         </form>
         <div class="error" id="errVenta"></div>
+      </div>
+      <div class="card" id="cardDeudas">
+        <h2>Por cobrar</h2>
+        <div id="listaDeudas"></div>
+        <div class="error" id="errCobro"></div>
       </div>
       <div class="card">
         <h2>Últimas ventas</h2>
@@ -237,6 +274,8 @@ let db = null;
 let productos = [];
 let ventas = [];
 let formatos = [];
+let deudas = [];
+let cobro = null;   // cobro de deuda abierto: { id, monto, medio }
 let editandoId = null;
 let canal = null;
 
@@ -314,24 +353,34 @@ async function cargarDatos() {
   if (!session) ({ data: { session } } = await db.auth.refreshSession());
   if (!session) { await db.auth.signOut(); return; }
 
-  const [p, v, r, f] = await Promise.all([
+  const [p, v, r, f, d] = await Promise.all([
     db.from('productos').select('*').order('nombre'),
-    db.from('ventas').select('*').order('fecha', { ascending: false }).limit(ULTIMAS_VENTAS),
+    db.from('ventas').select('*, pagos(medio, monto)').order('fecha', { ascending: false }).limit(ULTIMAS_VENTAS),
     db.from('resumen').select('*').single(),
     db.from('formatos').select('*').order('orden').order('nombre'),
+    db.from('deudas').select('*').order('fecha'),
   ]);
-  if (p.error || v.error || r.error || f.error) {
-    console.error(p.error || v.error || r.error || f.error);
+  const error = p.error || v.error || r.error || f.error || d.error;
+  if (error) {
+    console.error(error);
     $('btnActualizar').textContent = 'No se pudo actualizar · tocá para reintentar';
     return;
   }
   productos = p.data;
   ventas = v.data;
   formatos = f.data;
+  deudas = d.data;
   $('btnActualizar').textContent = 'Actualizado a las ' +
     new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' · tocá para actualizar';
   $('totalStock').textContent = dinero(r.data.total_stock);
   $('totalVentas').textContent = dinero(r.data.total_ventas);
+  $('totalEfectivo').textContent = dinero(r.data.total_efectivo);
+  $('totalTransferencia').textContent = dinero(r.data.total_transferencia);
+  $('totalDebe').textContent = dinero(r.data.total_debe);
+  // Lo cobrado antes de que existiera el medio de pago no está en ninguna de las dos cajas
+  const sinMedio = Number(r.data.total_sin_medio);
+  $('notaSinMedio').classList.toggle('oculto', !(sinMedio > 0));
+  $('notaSinMedio').textContent = `Ventas anteriores sin medio de pago registrado: ${dinero(sinMedio)}`;
   render();
 }
 
@@ -341,6 +390,7 @@ function escucharCambios() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, programarRecarga)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, programarRecarga)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'formatos' }, programarRecarga)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' }, programarRecarga)
     .subscribe();
 }
 function programarRecarga() {
@@ -401,8 +451,10 @@ function render() {
   const clientes = [...new Set(ventas.map(v => v.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   $('clientes').innerHTML = clientes.map(c => `<option value="${escapar(c)}">`).join('');
 
-  // Si alguien ya escribió un total a mano, una actualización en vivo no se lo pisa
-  actualizarVenta(!$('vTotal').value);
+  // Si alguien ya escribió lo que pagó o debe, una actualización en vivo no se lo pisa
+  actualizarVenta(!$('vPago').value && !$('vDebe').value);
+
+  renderDeudas();
 
   $('tablaVentas').innerHTML = ventas.length
     ? ventas.map(v => `
@@ -413,10 +465,75 @@ function render() {
         <td>${escapar(v.formato || kilos(v.cantidad))}
             ${productos.length > 1 ? `<span class="quien">${escapar(v.nombre)}</span>` : ''}
             ${v.unidad !== 'unidad' && v.formato && !/^[\d\/,.]+ kg$/.test(v.formato) ? `<span class="quien">${kilos(v.cantidad)}</span>` : ''}</td>
-        <td class="num">${dinero(v.total)}</td>
+        <td class="num">${dinero(v.total)}
+            ${Number(v.total) > Number(v.pagado) ? `<span class="debe-txt">Debe ${dinero(v.total - v.pagado)}</span>` : ''}
+            <span class="quien">${textoMedios(v.pagos)}</span></td>
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay ventas</td></tr>';
+}
+
+// "Efectivo", "Transferencia" o "Efectivo + Transf." según cómo se cobró
+function textoMedios(pagos = [], conIconos = true) {
+  const medios = [...new Set(pagos.map(p => p.medio))];
+  if (!medios.length) return '';
+  if (medios.length > 1) return medios.includes(null) ? 'Varios' : 'Efectivo + Transferencia';
+  if (medios[0] === null) return conIconos ? '' : 'Sin dato';
+  const nombre = { efectivo: 'Efectivo', transferencia: 'Transferencia' }[medios[0]];
+  return conIconos ? { efectivo: '💵 ', transferencia: '🏦 ' }[medios[0]] + nombre : nombre;
+}
+
+// ----- Por cobrar -----
+// Deudas agrupadas por cliente, con un botón "Cobrar" en cada venta
+function renderDeudas() {
+  $('cardDeudas').classList.toggle('oculto', deudas.length === 0 && !cobro);
+  // No se redibuja mientras alguien está escribiendo un cobro
+  if ($('listaDeudas').contains(document.activeElement)) return;
+  if (cobro && !deudas.some(d => d.id === cobro.id)) cobro = null;
+
+  const porCliente = new Map();
+  for (const d of deudas) {
+    const nombre = d.cliente || 'Sin nombre';
+    if (!porCliente.has(nombre)) porCliente.set(nombre, []);
+    porCliente.get(nombre).push(d);
+  }
+  $('listaDeudas').innerHTML = [...porCliente].map(([nombre, lista]) => `
+    <div class="deudor">
+      <div class="deudor-cab"><strong>${escapar(nombre)}</strong>
+        <span class="debe-txt">Debe ${dinero(lista.reduce((s, d) => s + Number(d.debe), 0))}</span></div>
+      ${lista.map(d => `
+        <div class="deuda">
+          <span>${new Date(d.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })} · ${escapar(d.formato || cant(d.cantidad, d.unidad))}${productos.length > 1 ? ' ' + escapar(d.nombre) : ''} · debe ${dinero(d.debe)}</span>
+          ${cobro?.id === d.id ? '' : `<button class="link editar" onclick="abrirCobro('${d.id}')">Cobrar</button>`}
+        </div>
+        ${cobro?.id === d.id ? `
+          <div class="cobro">
+            <label>Cobrar $ <input id="cMonto" type="number" min="0.01" step="0.01" inputmode="decimal" value="${cobro.monto}" oninput="cobro.monto = this.value"></label>
+            <button class="link" onclick="cobro = null; renderDeudas()">Cancelar</button>
+            <div class="formatos medios">
+              <label><input type="radio" name="cMedio" value="efectivo" ${cobro.medio === 'efectivo' ? 'checked' : ''} onchange="cobro.medio = this.value"><span>💵 Efectivo</span></label>
+              <label><input type="radio" name="cMedio" value="transferencia" ${cobro.medio === 'transferencia' ? 'checked' : ''} onchange="cobro.medio = this.value"><span>🏦 Transferencia</span></label>
+            </div>
+            <button class="primario" style="grid-column: 1 / -1" id="btnCobrar" onclick="confirmarCobro()">Confirmar cobro</button>
+          </div>` : ''}`).join('')}
+    </div>`).join('') || '<p class="vacio">Nadie debe nada 🎉</p>';
+}
+
+function abrirCobro(id) {
+  const d = deudas.find(d => d.id === id);
+  cobro = { id, monto: Number(d.debe), medio: null };
+  $('errCobro').textContent = '';
+  renderDeudas();
+}
+
+async function confirmarCobro() {
+  const monto = parseFloat(cobro.monto);
+  if (!(monto > 0)) { $('errCobro').textContent = 'Poné cuánto pagó.'; return; }
+  if (!cobro.medio) { $('errCobro').textContent = 'Elegí si pagó en efectivo o por transferencia.'; return; }
+  $('btnCobrar').blur();
+  const ok = await accion($('btnCobrar'), $('errCobro'),
+    () => db.rpc('registrar_cobro', { p_venta: cobro.id, p_monto: monto, p_medio: cobro.medio }));
+  if (ok) { cobro = null; renderDeudas(); }
 }
 
 // ----- Productos -----
@@ -563,7 +680,13 @@ function actualizarVenta(recalcularTotal = true) {
   $('lblBolsas').textContent = formato === 'unidad' ? 'Cantidad (unidades)' : 'Cantidad (bolsas)';
   $('campoBolsas').classList.toggle('oculto', formato === 'otro');
   $('campoKg').classList.toggle('oculto', formato !== 'otro');
-  if (recalcularTotal && sugerido >= 0) $('vTotal').value = Math.round(sugerido);
+  // Al cambiar producto, formato o cantidad: se propone que pagó todo
+  if (recalcularTotal && sugerido >= 0) {
+    totalVenta = Math.round(sugerido);
+    $('vPago').value = totalVenta;
+    $('vDebe').value = 0;
+  }
+  mostrarTotalVenta();
   if (f && f.kg == null) {
     $('resumenVenta').innerHTML = `<span class="sin-stock">Falta cargar cuántos kg pesa "${escapar(f.nombre)}". Configuralo en Stock → Formatos de venta.</span>`;
     return;
@@ -578,6 +701,29 @@ function actualizarVenta(recalcularTotal = true) {
     : `Se descuentan ${cant(kg, p.unidad)} de ${escapar(p.nombre)} · quedan ${cant(queda, p.unidad)}`;
 }
 
+// Total de la venta = pagó + debe. Al editar uno, el otro se ajusta para mantener el total;
+// si lo escrito supera el total, el total pasa a ser ese número (otro precio).
+let totalVenta = 0;
+const numero = id => Math.max(0, parseFloat($(id).value) || 0);
+function mostrarTotalVenta() {
+  const pago = numero('vPago');
+  $('totalVenta').innerHTML = `Total de la venta: <strong>${dinero(pago + numero('vDebe'))}</strong>`;
+  // Si no pagó nada no hace falta elegir cómo
+  $('bloqueMedio').classList.toggle('oculto', !(pago > 0));
+}
+$('vPago').addEventListener('input', () => {
+  const pago = numero('vPago');
+  if (pago > totalVenta) totalVenta = pago;
+  $('vDebe').value = Math.round((totalVenta - pago) * 100) / 100;
+  mostrarTotalVenta();
+});
+$('vDebe').addEventListener('input', () => {
+  const debe = numero('vDebe');
+  if (debe > totalVenta) totalVenta = debe;
+  $('vPago').value = Math.round((totalVenta - debe) * 100) / 100;
+  mostrarTotalVenta();
+});
+
 $('vProducto').addEventListener('change', () => actualizarVenta());
 $('formatos').addEventListener('change', () => {
   actualizarVenta();
@@ -589,20 +735,26 @@ $('vKg').addEventListener('input', () => actualizarVenta());
 $('formVenta').addEventListener('submit', async e => {
   e.preventDefault();
   const { p, f, kg, descripcion } = datosVenta();
-  const total = parseFloat($('vTotal').value);
+  const pago = numero('vPago');
+  const debe = numero('vDebe');
+  const medio = document.querySelector('input[name="medio"]:checked')?.value || null;
   if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
   if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuántos kg pesa "${f.nombre}" (Stock → Formatos de venta).`; return; }
   if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
   if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${cant(p.cantidad, p.unidad)} en stock.`; return; }
-  if (isNaN(total) || total < 0) { $('errVenta').textContent = 'Revisá el total.'; return; }
+  if (pago + debe <= 0) { $('errVenta').textContent = 'Poné cuánto pagó o cuánto debe.'; return; }
+  if (pago > 0 && !medio) { $('errVenta').textContent = 'Elegí si pagó en efectivo o por transferencia.'; return; }
+  if (debe > 0 && !$('vCliente').value.trim()) { $('errVenta').textContent = 'Si queda debiendo, poné a quién se le vendió.'; return; }
   const ok = await accion($('btnVenta'), $('errVenta'), () => db.rpc('registrar_venta', {
-    p_producto: p.id, p_kg: kg, p_total: total, p_formato: descripcion, p_cliente: $('vCliente').value,
+    p_producto: p.id, p_kg: kg, p_total: pago + debe, p_formato: descripcion, p_cliente: $('vCliente').value,
+    p_pagado: pago, p_medio: pago > 0 ? medio : null,
   }));
   if (ok) {
     const productoId = $('vProducto').value;
     $('formVenta').reset();
     $('vProducto').value = productoId;
     actualizarVenta();
+    renderDeudas();
   }
 });
 
@@ -642,7 +794,7 @@ async function todasLasVentas() {
   const filas = [];
   for (let desde = 0; ; desde += 1000) {
     const { data, error } = await conSesion(() =>
-      db.from('ventas').select('*').order('fecha', { ascending: true }).range(desde, desde + 999));
+      db.from('ventas').select('*, pagos(*)').order('fecha', { ascending: true }).range(desde, desde + 999));
     if (error) throw new Error(error.message);
     filas.push(...data);
     if (data.length < 1000) return filas;
@@ -664,11 +816,30 @@ $('btnDescargar').addEventListener('click', async () => {
       'Cantidad': Number(v.cantidad),
       'Unidad': unidadTexto(v.unidad),
       'Total $': Number(v.total),
+      'Pagó $': Number(v.pagado),
+      'Debe $': Number(v.total) - Number(v.pagado),
+      'Medio de pago': textoMedios(v.pagos, false),
       'A quién': v.cliente || '',
       'Cargó': v.vendedor || '',
-    })), { header: ['Fecha', 'Producto', 'Formato', 'Cantidad', 'Unidad', 'Total $', 'A quién', 'Cargó'] });
+    })), { header: ['Fecha', 'Producto', 'Formato', 'Cantidad', 'Unidad', 'Total $', 'Pagó $', 'Debe $', 'Medio de pago', 'A quién', 'Cargó'] });
     // La columna Fecha va como número de Excel con formato de fecha y hora
     for (let fila = 1; fila <= todas.length; fila++) hojaVentas['A' + (fila + 1)].z = 'dd/mm/yyyy hh:mm';
+
+    // Cobros: cada pago que entró, con su caja (incluye los cobros de deudas)
+    const cobros = todas.flatMap(v => v.pagos.map(p => ({ ...p, venta: v })))
+      .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    const medioTexto = { efectivo: 'Efectivo', transferencia: 'Transferencia' };
+    const hojaCobros = XLSX.utils.json_to_sheet(cobros.map(c => ({
+      'Fecha': fechaExcel(new Date(c.fecha)),
+      'Monto $': Number(c.monto),
+      'Medio': medioTexto[c.medio] || 'Sin dato',
+      'A quién': c.venta.cliente || '',
+      'Producto': c.venta.nombre,
+      'Formato': c.venta.formato || '',
+      'Cobró': c.cobrador || '',
+    })), { header: ['Fecha', 'Monto $', 'Medio', 'A quién', 'Producto', 'Formato', 'Cobró'] });
+    for (let fila = 1; fila <= cobros.length; fila++) hojaCobros['A' + (fila + 1)].z = 'dd/mm/yyyy hh:mm';
+    const cobradoPor = medio => cobros.filter(c => c.medio === medio).reduce((s, c) => s + Number(c.monto), 0);
 
     const hojaStock = XLSX.utils.json_to_sheet(productos.map(p => ({
       'Producto': p.nombre,
@@ -690,24 +861,31 @@ $('btnDescargar').addEventListener('click', async () => {
     const valorStock = productos.reduce((s, p) => s + Number(p.cantidad) * Number(p.precio), 0);
     const totalVendido = todas.reduce((s, v) => s + Number(v.total), 0);
     const hojaResumen = XLSX.utils.aoa_to_sheet([
-      ['Chipa App', 'Descargado el ' + new Date().toLocaleString('es-AR')],
+      ['Chipá de Una', 'Descargado el ' + new Date().toLocaleString('es-AR')],
       [],
       ['Valor total del stock $', valorStock],
       ['Total vendido $', totalVendido],
       ['Cantidad de ventas', todas.length],
+      [],
+      ['Cobrado en efectivo $', cobradoPor('efectivo')],
+      ['Cobrado por transferencia $', cobradoPor('transferencia')],
+      ['Cobrado sin dato del medio $', cobradoPor(null)],
+      ['Por cobrar (deben) $', todas.reduce((s, v) => s + Number(v.total) - Number(v.pagado), 0)],
       [],
       ['Producto', 'Cantidad vendida', 'Unidad', 'Ventas', 'Total vendido $'],
       ...Object.values(porProducto).map(r => [r['Producto'], Math.round(r['Cantidad vendida'] * 1000) / 1000, r['Unidad'], r['Ventas'], r['Total vendido $']]),
     ]);
 
     // Anchos de columna para que se lea bien al abrirlo
-    hojaVentas['!cols'] = [18, 22, 16, 10, 10, 12, 24, 26].map(wch => ({ wch }));
+    hojaVentas['!cols'] = [18, 22, 16, 10, 10, 12, 12, 12, 18, 24, 26].map(wch => ({ wch }));
+    hojaCobros['!cols'] = [18, 12, 14, 24, 22, 16, 26].map(wch => ({ wch }));
     hojaStock['!cols'] = [24, 10, 10, 12, 10, 14].map(wch => ({ wch }));
-    hojaResumen['!cols'] = [26, 18, 10, 8, 16].map(wch => ({ wch }));
+    hojaResumen['!cols'] = [30, 18, 10, 8, 16].map(wch => ({ wch }));
 
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hojaResumen, 'Resumen');
     XLSX.utils.book_append_sheet(libro, hojaVentas, 'Ventas');
+    XLSX.utils.book_append_sheet(libro, hojaCobros, 'Cobros');
     XLSX.utils.book_append_sheet(libro, hojaStock, 'Stock');
     const hoy = new Date();
     const dosDigitos = n => String(n).padStart(2, '0');
