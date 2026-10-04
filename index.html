@@ -21,7 +21,9 @@
   main { max-width: 900px; margin: 0 auto; padding: 16px; }
   .oculto { display: none !important; }
   .totales { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
-  .actualizado { display: block; margin: 0 0 12px auto; background: none; border: 0; padding: 4px; font-size: .8rem; color: var(--muted); cursor: pointer; }
+  .barra-datos { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .actualizado { background: none; border: 0; padding: 4px; font-size: .8rem; color: var(--muted); cursor: pointer; text-align: right; }
+  .descargar { background: var(--card); border: 1px solid var(--accent); color: var(--accent-dark); border-radius: 8px; padding: 7px 12px; font-size: .9rem; font-weight: 600; cursor: pointer; }
   .total { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
   .total span { display: block; color: var(--muted); font-size: .85rem; }
   .total strong { font-size: 1.5rem; }
@@ -115,7 +117,10 @@
       <div class="total"><span>Valor total del stock</span><strong id="totalStock">$0</strong></div>
       <div class="total ventas"><span>Total vendido</span><strong id="totalVentas">$0</strong></div>
     </div>
-    <button class="actualizado" id="btnActualizar" type="button">Actualizando…</button>
+    <div class="barra-datos">
+      <button class="descargar" id="btnDescargar" type="button">⬇ Descargar Excel</button>
+      <button class="actualizado" id="btnActualizar" type="button">Actualizando…</button>
+    </div>
 
     <div class="tabs">
       <button data-tab="stock" class="activo">Stock</button>
@@ -598,6 +603,110 @@ function anularVenta(id, boton) {
     await cargarDatos();
   });
 }
+
+// ----- Descargar Excel -----
+// La librería para armar el .xlsx se carga recién cuando alguien toca el botón
+let cargaXlsx = null;
+function cargarXlsx() {
+  cargaXlsx ??= new Promise((ok, mal) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ok;
+    s.onerror = () => { cargaXlsx = null; mal(new Error('No se pudo cargar el generador de Excel.')); };
+    document.head.appendChild(s);
+  });
+  return cargaXlsx;
+}
+
+// Fecha y hora local como número de Excel (días desde el 30/12/1899). Se calcula a mano
+// porque la conversión de la librería corre algunos minutos con el horario de Argentina.
+function fechaExcel(d) {
+  const local = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds());
+  return (local - Date.UTC(1899, 11, 30)) / 86400000;
+}
+
+// Trae todas las ventas (la base entrega de a 1000 filas)
+async function todasLasVentas() {
+  const filas = [];
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await conSesion(() =>
+      db.from('ventas').select('*').order('fecha', { ascending: true }).range(desde, desde + 999));
+    if (error) throw new Error(error.message);
+    filas.push(...data);
+    if (data.length < 1000) return filas;
+  }
+}
+
+$('btnDescargar').addEventListener('click', async () => {
+  const boton = $('btnDescargar');
+  boton.disabled = true;
+  boton.textContent = 'Preparando…';
+  try {
+    const [todas] = await Promise.all([todasLasVentas(), cargarXlsx()]);
+    const unidadTexto = u => (u === 'unidad' ? 'unidades' : 'kg');
+
+    const hojaVentas = XLSX.utils.json_to_sheet(todas.map(v => ({
+      'Fecha': fechaExcel(new Date(v.fecha)),
+      'Producto': v.nombre,
+      'Formato': v.formato || '',
+      'Cantidad': Number(v.cantidad),
+      'Unidad': unidadTexto(v.unidad),
+      'Total $': Number(v.total),
+      'A quién': v.cliente || '',
+      'Cargó': v.vendedor || '',
+    })), { header: ['Fecha', 'Producto', 'Formato', 'Cantidad', 'Unidad', 'Total $', 'A quién', 'Cargó'] });
+    // La columna Fecha va como número de Excel con formato de fecha y hora
+    for (let fila = 1; fila <= todas.length; fila++) hojaVentas['A' + (fila + 1)].z = 'dd/mm/yyyy hh:mm';
+
+    const hojaStock = XLSX.utils.json_to_sheet(productos.map(p => ({
+      'Producto': p.nombre,
+      'Stock': Number(p.cantidad),
+      'Unidad': unidadTexto(p.unidad),
+      'Precio $': Number(p.precio),
+      'Precio por': p.unidad === 'unidad' ? 'unidad' : 'kg',
+      'Valor $': Number(p.cantidad) * Number(p.precio),
+    })));
+
+    // Resumen: totales generales y lo vendido por producto
+    const porProducto = {};
+    for (const v of todas) {
+      const r = porProducto[v.nombre] ??= { 'Producto': v.nombre, 'Cantidad vendida': 0, 'Unidad': unidadTexto(v.unidad), 'Ventas': 0, 'Total vendido $': 0 };
+      r['Cantidad vendida'] += Number(v.cantidad);
+      r['Ventas'] += 1;
+      r['Total vendido $'] += Number(v.total);
+    }
+    const valorStock = productos.reduce((s, p) => s + Number(p.cantidad) * Number(p.precio), 0);
+    const totalVendido = todas.reduce((s, v) => s + Number(v.total), 0);
+    const hojaResumen = XLSX.utils.aoa_to_sheet([
+      ['Chipa App', 'Descargado el ' + new Date().toLocaleString('es-AR')],
+      [],
+      ['Valor total del stock $', valorStock],
+      ['Total vendido $', totalVendido],
+      ['Cantidad de ventas', todas.length],
+      [],
+      ['Producto', 'Cantidad vendida', 'Unidad', 'Ventas', 'Total vendido $'],
+      ...Object.values(porProducto).map(r => [r['Producto'], Math.round(r['Cantidad vendida'] * 1000) / 1000, r['Unidad'], r['Ventas'], r['Total vendido $']]),
+    ]);
+
+    // Anchos de columna para que se lea bien al abrirlo
+    hojaVentas['!cols'] = [18, 22, 16, 10, 10, 12, 24, 26].map(wch => ({ wch }));
+    hojaStock['!cols'] = [24, 10, 10, 12, 10, 14].map(wch => ({ wch }));
+    hojaResumen['!cols'] = [26, 18, 10, 8, 16].map(wch => ({ wch }));
+
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hojaResumen, 'Resumen');
+    XLSX.utils.book_append_sheet(libro, hojaVentas, 'Ventas');
+    XLSX.utils.book_append_sheet(libro, hojaStock, 'Stock');
+    const hoy = new Date();
+    const dosDigitos = n => String(n).padStart(2, '0');
+    XLSX.writeFile(libro, `chipa-${hoy.getFullYear()}-${dosDigitos(hoy.getMonth() + 1)}-${dosDigitos(hoy.getDate())}.xlsx`);
+  } catch (e) {
+    mostrarError(e.message || 'No se pudo descargar el Excel.');
+  } finally {
+    boton.disabled = false;
+    boton.textContent = '⬇ Descargar Excel';
+  }
+});
 
 // ----- Pestañas -----
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
