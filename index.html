@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chipa App</title>
+<title>Chipá de Una</title>
 <!-- Para instalarla en el celular como app ("Agregar a pantalla de inicio") -->
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icono-192.png">
@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#c8862b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Chipa">
+<meta name="apple-mobile-web-app-title" content="Chipá de Una">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -24,7 +24,9 @@
   body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
   header { background: var(--accent); color: #fff; padding: 12px 16px; }
   header .fila { max-width: 900px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  header h1 { margin: 0; font-size: 1.4rem; }
+  header h1 { margin: 0; font-size: 1.4rem; display: flex; align-items: center; gap: 8px; }
+  .logo-barra { height: 40px; width: auto; }
+  .logo-login { display: block; width: 100%; max-width: 260px; margin: 0 auto 8px; border-radius: 12px; }
   header .usuario { font-size: .85rem; display: flex; align-items: center; gap: 8px; }
   header .usuario button { background: rgba(255,255,255,.2); color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   main { max-width: 900px; margin: 0 auto; padding: 16px; }
@@ -100,7 +102,7 @@
 <body>
 <header>
   <div class="fila">
-    <h1>🥯 Chipa App</h1>
+    <h1><img src="logo-barra.png" alt="" class="logo-barra"> Chipá de Una</h1>
     <div class="usuario oculto" id="barraUsuario"><span id="emailUsuario"></span><button id="btnSalir">Salir</button></div>
   </div>
 </header>
@@ -112,6 +114,7 @@
 
   <!-- LOGIN -->
   <form class="login card oculto" id="pantallaLogin">
+    <img src="logo.jpg" alt="Chipá de Una — chipá congelado para hornear" class="logo-login">
     <h2>Ingresar</h2>
     <label>Email <input id="lEmail" type="email" required autocomplete="username"></label>
     <label>Contraseña <input id="lClave" type="password" required autocomplete="current-password"></label>
