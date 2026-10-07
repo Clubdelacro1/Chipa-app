@@ -41,23 +41,17 @@ create table pagos (
 );
 create index pagos_venta on pagos (venta_id);
 
--- Formatos de venta (botones de la pestaña Ventas), editables desde la app
+-- Presentaciones de cada producto (botones de la pestaña Ventas), editables desde la app.
+-- kg = cantidad que descuenta del stock, en la unidad del producto (kg o unidades).
 create table formatos (
-  id     uuid primary key default gen_random_uuid(),
-  nombre text not null check (length(trim(nombre)) > 0),
-  kg     numeric(10,3) check (kg > 0),        -- kg que descuenta del stock (null = falta cargar)
-  precio numeric(12,2) check (precio >= 0),   -- precio fijo (null = según precio por kg)
-  orden  integer not null default 0
+  id          uuid primary key default gen_random_uuid(),
+  nombre      text not null check (length(trim(nombre)) > 0),
+  kg          numeric(10,3) check (kg > 0),        -- null = falta cargar
+  precio      numeric(12,2) check (precio >= 0),   -- precio fijo (null = según precio del producto)
+  orden       integer not null default 0,
+  producto_id uuid references productos(id) on delete cascade
 );
-create unique index formatos_nombre_unico on formatos (lower(nombre));
-
-insert into formatos (nombre, kg, precio, orden) values
-  ('1 kg',         1,    null,   1),
-  ('1/2 kg',       0.5,  null,   2),
-  ('1/4 kg',       0.25, null,   3),
-  ('10 kg',        10,   165500, 4),
-  ('12 unidades',  0.36, 10000,  5),
-  ('6 unidades',   0.18, 6000,   6);
+create unique index formatos_producto_nombre on formatos (producto_id, lower(nombre));
 
 -- Totales para mostrar arriba en la app
 create view resumen with (security_invoker = true) as

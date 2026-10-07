@@ -36,8 +36,14 @@
   .totales.cajas .total { padding: 10px; }
   .totales.cajas strong { font-size: 1.1rem; }
   .total.debe strong { color: var(--danger); }
-  .total-venta { font-size: 1.05rem; align-self: center; }
-  .regalo { justify-self: end; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font-size: .9rem; cursor: pointer; color: var(--text); }
+  .total-venta { grid-column: 1 / -1; margin-top: -4px; }
+  .fila-precio { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+  .prod-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .prod-cab h2 { margin: 0; }
+  .prod-datos { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 12px; font-size: .95rem; }
+  .prod-datos span { color: var(--muted); }
+  .card h3 { font-size: .95rem; margin: 0 0 4px; }
+  .regalo { align-self: end; justify-self: start; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font-size: .9rem; cursor: pointer; color: var(--text); }
   .regalo-txt { display: block; font-size: .85rem; color: var(--accent-dark); font-weight: 600; }
   .total-venta strong { font-size: 1.25rem; }
   .medios { grid-template-columns: 1fr 1fr !important; }
@@ -183,30 +189,8 @@
         </form>
         <div class="error" id="errProducto"></div>
       </div>
-      <div class="card">
-        <h2>Stock disponible</h2>
-        <table>
-          <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
-          <tbody id="tablaStock"></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>Formatos de venta</h2>
-        <p class="ayuda">Para los productos que se miden en kilos. Los kg son lo que se descuenta del stock en cada venta. Si dejás el precio fijo vacío, se calcula con el precio por kg del producto.</p>
-        <table class="tabla-formatos">
-          <thead><tr><th>Formato</th><th>Kg</th><th>Precio fijo</th><th></th></tr></thead>
-          <tbody id="tablaFormatos"></tbody>
-          <tfoot>
-            <tr>
-              <td><input id="fNombre" placeholder="Nuevo formato"></td>
-              <td data-label="Kg"><input id="fKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="kg"></td>
-              <td data-label="Precio fijo"><input id="fPrecio" type="number" min="0" step="0.01" inputmode="decimal" placeholder="—"></td>
-              <td class="num"><button class="link editar" id="btnAgregarFormato">Agregar</button></td>
-            </tr>
-          </tfoot>
-        </table>
-        <div class="error" id="errFormato"></div>
-      </div>
+      <!-- Una tarjeta por producto, cada una con sus presentaciones -->
+      <div id="listaProductos"></div>
     </section>
 
     <!-- VENTAS -->
@@ -216,13 +200,16 @@
         <form class="venta" id="formVenta">
           <label class="ancho" id="campoProducto">Producto <select id="vProducto"></select></label>
           <div class="ancho" id="bloqueFormatos">
-            <span class="etiqueta">Formato</span>
+            <span class="etiqueta">Presentación</span>
             <div class="formatos" id="formatos"></div>
           </div>
-          <label id="campoBolsas"><span id="lblBolsas">Cantidad (bolsas)</span> <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
-          <label id="campoKg" class="oculto">Kg <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
-          <div class="total-venta" id="totalVenta"></div>
-          <button type="button" class="regalo" id="btnRegalo">🎁 Regalo</button>
+          <label id="campoBolsas" class="ancho">Cantidad <input id="vBolsas" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+          <label id="campoKg" class="ancho oculto"><span id="lblKg">Kg</span> <input id="vKg" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej: 0,75"></label>
+          <div class="fila-precio ancho">
+            <label>Precio $ <input id="vPrecio" type="number" min="0" step="0.01" inputmode="decimal"></label>
+            <button type="button" class="regalo" id="btnRegalo">🎁 Regalo</button>
+          </div>
+          <div class="total-venta oculto" id="totalVenta"></div>
           <label>Pagó $ <input id="vPago" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <label>Debe $ <input id="vDebe" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <div class="ancho" id="bloqueMedio">
@@ -401,42 +388,11 @@ function programarRecarga() {
   recargaPendiente = setTimeout(cargarDatos, 300);
 }
 
+// Presentaciones de un producto, en orden
+const presentacionesDe = productoId => formatos.filter(f => f.producto_id === productoId);
+
 function render() {
-  $('tablaStock').innerHTML = productos.length
-    ? productos.map(p => `
-      <tr>
-        <td>${escapar(p.nombre)}</td>
-        <td class="num ${Number(p.cantidad) <= 0 ? 'sin-stock' : ''}">${cant(p.cantidad, p.unidad)}</td>
-        <td class="num">${dinero(p.precio)}<span class="quien">por ${p.unidad === 'unidad' ? 'unidad' : 'kg'}</span></td>
-        <td class="num">${dinero(p.cantidad * p.precio)}</td>
-        <td class="num">
-          <button class="link editar" onclick="editarProducto('${p.id}')">Editar</button>
-          <button class="link borrar" onclick="borrarProducto('${p.id}', this)">Borrar</button>
-        </td>
-      </tr>`).join('')
-    : '<tr><td colspan="5" class="vacio">Todavía no hay productos cargados</td></tr>';
-
-  // Botones de formato en Ventas (se mantiene el elegido) + "Otro" al final
-  const elegido = document.querySelector('input[name="formato"]:checked')?.value;
-  const valores = [...formatos.map(f => f.id), 'otro'];
-  const marcado = valores.includes(elegido) ? elegido : valores[0];
-  $('formatos').innerHTML = [...formatos.map(f => [f.id, f.nombre]), ['otro', 'Otro']]
-    .map(([valor, nombre]) => `<label><input type="radio" name="formato" value="${valor}" ${valor === marcado ? 'checked' : ''}><span>${escapar(nombre)}</span></label>`)
-    .join('');
-
-  // Tabla editable de formatos (no se redibuja mientras alguien está escribiendo en ella)
-  if (!$('tablaFormatos').contains(document.activeElement)) {
-    $('tablaFormatos').innerHTML = formatos.map(f => `
-      <tr data-id="${f.id}">
-        <td><input class="f-nombre" value="${escapar(f.nombre)}"></td>
-        <td data-label="Kg"><input class="f-kg" type="number" min="0.001" step="0.001" inputmode="decimal" value="${f.kg ?? ''}" placeholder="falta"></td>
-        <td data-label="Precio fijo"><input class="f-precio" type="number" min="0" step="0.01" inputmode="decimal" value="${f.precio ?? ''}" placeholder="—"></td>
-        <td class="num">
-          <button class="link editar" onclick="guardarFormato('${f.id}', this)">Guardar</button>
-          <button class="link borrar" onclick="borrarFormato('${f.id}', this)">Borrar</button>
-        </td>
-      </tr>`).join('');
-  }
+  renderProductos();
 
   // Nombres existentes para autocompletar al cargar stock
   $('nombresProductos').innerHTML = productos.map(p => `<option value="${escapar(p.nombre)}">`).join('');
@@ -449,13 +405,14 @@ function render() {
   const conStock = productos.filter(p => Number(p.cantidad) > 0);
   $('vProducto').value = conStock.some(p => p.id === seleccionado) ? seleccionado : (conStock[0]?.id || '');
   $('campoProducto').classList.toggle('oculto', productos.length === 1);
+  renderPresentacionesVenta();
 
   // Clientes anteriores para autocompletar "A quién"
   const clientes = [...new Set(ventas.map(v => v.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   $('clientes').innerHTML = clientes.map(c => `<option value="${escapar(c)}">`).join('');
 
-  // Si alguien ya escribió lo que pagó o debe, una actualización en vivo no se lo pisa
-  actualizarVenta(!$('vPago').value && !$('vDebe').value);
+  // Si alguien ya escribió el precio, una actualización en vivo no se lo pisa
+  actualizarVenta(!$('vPrecio').value);
 
   renderDeudas();
 
@@ -474,6 +431,77 @@ function render() {
         <td class="num"><button class="link borrar" onclick="anularVenta('${v.id}', this)">Anular</button></td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="vacio">Todavía no hay ventas</td></tr>';
+}
+
+// Stock: una tarjeta por producto con sus datos y sus presentaciones editables.
+// No se redibuja mientras alguien está escribiendo en un campo de las tarjetas.
+function renderProductos() {
+  if ($('listaProductos').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+  if (!productos.length) {
+    $('listaProductos').innerHTML = '<div class="card"><p class="vacio">Todavía no hay productos cargados</p></div>';
+    return;
+  }
+  $('listaProductos').innerHTML = productos.map(p => {
+    const porUnidad = p.unidad === 'unidad';
+    const unidadCol = porUnidad ? 'Unidades' : 'Kg';
+    const paso = porUnidad ? '1' : '0.001';
+    const precioPor = porUnidad ? 'por unidad' : 'por kg';
+    const filaPresentacion = f => `
+      <tr data-id="${f.id}">
+        <td><input class="f-nombre" value="${escapar(f.nombre)}"></td>
+        <td data-label="${unidadCol}"><input class="f-kg" type="number" min="${paso}" step="${paso}" inputmode="decimal" value="${f.kg ?? ''}" placeholder="falta"></td>
+        <td data-label="Precio"><input class="f-precio" type="number" min="0" step="0.01" inputmode="decimal" value="${f.precio ?? ''}" placeholder="${precioPor}"></td>
+        <td class="num">
+          <button class="link editar" onclick="guardarFormato('${f.id}', this)">Guardar</button>
+          <button class="link borrar" onclick="borrarFormato('${f.id}', this)">Borrar</button>
+        </td>
+      </tr>`;
+    return `
+      <div class="card" data-producto="${p.id}">
+        <div class="prod-cab">
+          <h2>${escapar(p.nombre)}</h2>
+          <div>
+            <button class="link editar" onclick="editarProducto('${p.id}')">Editar</button>
+            <button class="link borrar" onclick="borrarProducto('${p.id}', this)">Borrar</button>
+          </div>
+        </div>
+        <div class="prod-datos">
+          <div><span>Stock:</span> <strong class="${Number(p.cantidad) <= 0 ? 'sin-stock' : ''}">${cant(p.cantidad, p.unidad)}</strong></div>
+          <div><span>Precio:</span> ${dinero(p.precio)} ${precioPor}</div>
+          <div><span>Valor:</span> ${dinero(p.cantidad * p.precio)}</div>
+        </div>
+        <h3>Presentaciones</h3>
+        <p class="ayuda">${unidadCol} = lo que se descuenta del stock en cada venta. Si dejás el precio vacío, se calcula ${precioPor}.</p>
+        <table class="tabla-formatos">
+          <thead><tr><th>Presentación</th><th>${unidadCol}</th><th>Precio</th><th></th></tr></thead>
+          <tbody>${presentacionesDe(p.id).map(filaPresentacion).join('')}</tbody>
+          <tfoot>
+            <tr>
+              <td><input class="f-nombre" placeholder="Nueva presentación"></td>
+              <td data-label="${unidadCol}"><input class="f-kg" type="number" min="${paso}" step="${paso}" inputmode="decimal" placeholder="${porUnidad ? 'unid.' : 'kg'}"></td>
+              <td data-label="Precio"><input class="f-precio" type="number" min="0" step="0.01" inputmode="decimal" placeholder="${precioPor}"></td>
+              <td class="num"><button class="link editar" onclick="agregarPresentacion('${p.id}', this)">Agregar</button></td>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="error"></div>
+      </div>`;
+  }).join('');
+}
+
+// Ventas: botones con las presentaciones del producto elegido + "Otro" (kg o unidades a mano)
+function renderPresentacionesVenta() {
+  const p = productos.find(p => p.id === $('vProducto').value);
+  const lista = p ? presentacionesDe(p.id) : [];
+  const elegido = document.querySelector('input[name="formato"]:checked')?.value;
+  const valores = [...lista.map(f => f.id), 'otro'];
+  const marcado = valores.includes(elegido) ? elegido : valores[0];
+  const otro = p?.unidad === 'unidad' ? 'Unidades' : 'Otro';
+  $('formatos').innerHTML = [...lista.map(f => [f.id, f.nombre]), ['otro', otro]]
+    .map(([valor, nombre]) => `<label><input type="radio" name="formato" value="${valor}" ${valor === marcado ? 'checked' : ''}><span>${escapar(nombre)}</span></label>`)
+    .join('');
+  // Producto por unidades sin presentaciones: arranca en 1 unidad
+  if (p?.unidad === 'unidad' && marcado === 'otro' && !$('vKg').value) $('vKg').value = 1;
 }
 
 // "Efectivo", "Transferencia" o "Efectivo + Transf." según cómo se cobró
@@ -611,24 +639,35 @@ function borrarProducto(id, boton) {
   });
 }
 
-// ----- Formatos de venta -----
-// Lee nombre, kg y precio fijo (vacíos = null) de una fila o del alta
-function leerFormato(nombreEl, kgEl, precioEl) {
-  const nombre = nombreEl.value.trim();
-  const kg = kgEl.value === '' ? null : parseFloat(kgEl.value);
-  const precio = precioEl.value === '' ? null : parseFloat(precioEl.value);
-  if (!nombre) return { error: 'El formato necesita un nombre.' };
-  if (kg !== null && !(kg > 0)) return { error: 'Los kg tienen que ser mayores a 0.' };
-  if (precio !== null && !(precio >= 0)) return { error: 'Revisá el precio fijo.' };
+// ----- Presentaciones (cada producto tiene las suyas) -----
+// Lee nombre, cantidad (kg o unidades) y precio (vacíos = null) de una fila de la tarjeta
+function leerFormato(fila) {
+  const nombre = fila.querySelector('.f-nombre').value.trim();
+  const kgTxt = fila.querySelector('.f-kg').value;
+  const precioTxt = fila.querySelector('.f-precio').value;
+  const kg = kgTxt === '' ? null : parseFloat(kgTxt);
+  const precio = precioTxt === '' ? null : parseFloat(precioTxt);
+  if (!nombre) return { error: 'La presentación necesita un nombre.' };
+  if (kg !== null && !(kg > 0)) return { error: 'La cantidad tiene que ser mayor a 0.' };
+  if (precio !== null && !(precio >= 0)) return { error: 'Revisá el precio.' };
   return { datos: { nombre, kg, precio } };
 }
+const errorDeTarjeta = boton => boton.closest('.card').querySelector('.error');
 
 function guardarFormato(id, boton) {
-  const fila = boton.closest('tr');
-  const { error, datos } = leerFormato(fila.querySelector('.f-nombre'), fila.querySelector('.f-kg'), fila.querySelector('.f-precio'));
-  if (error) { $('errFormato').textContent = error; return; }
+  const { error, datos } = leerFormato(boton.closest('tr'));
+  if (error) { errorDeTarjeta(boton).textContent = error; return; }
   boton.blur();
-  accion(boton, $('errFormato'), () => db.from('formatos').update(datos).eq('id', id));
+  accion(boton, errorDeTarjeta(boton), () => db.from('formatos').update(datos).eq('id', id));
+}
+
+async function agregarPresentacion(productoId, boton) {
+  const { error, datos } = leerFormato(boton.closest('tr'));
+  if (error) { errorDeTarjeta(boton).textContent = error; return; }
+  datos.producto_id = productoId;
+  datos.orden = Math.max(0, ...presentacionesDe(productoId).map(f => f.orden)) + 1;
+  boton.blur();
+  await accion(boton, errorDeTarjeta(boton), () => db.from('formatos').insert(datos));
 }
 
 function borrarFormato(id, boton) {
@@ -640,31 +679,20 @@ function borrarFormato(id, boton) {
   });
 }
 
-$('btnAgregarFormato').addEventListener('click', async () => {
-  const { error, datos } = leerFormato($('fNombre'), $('fKg'), $('fPrecio'));
-  if (error) { $('errFormato').textContent = error; return; }
-  datos.orden = Math.max(0, ...formatos.map(f => f.orden)) + 1;
-  $('btnAgregarFormato').blur();
-  const ok = await accion($('btnAgregarFormato'), $('errFormato'), () => db.from('formatos').insert(datos));
-  if (ok) { $('fNombre').value = ''; $('fKg').value = ''; $('fPrecio').value = ''; }
-});
 
 // ----- Ventas -----
 // Lee el formulario de venta: producto, formato, cantidad a descontar (kg o unidades,
 // según el producto), total sugerido y descripción
 function datosVenta() {
   const p = productos.find(p => p.id === $('vProducto').value);
-  if (p && p.unidad === 'unidad') {
-    const n = parseInt($('vBolsas').value, 10);
-    return { p, f: null, formato: 'unidad', kg: n, sugerido: n * Number(p.precio), descripcion: n === 1 ? '1 unidad' : `${n} unidades` };
-  }
   const formato = document.querySelector('input[name="formato"]:checked')?.value || 'otro';
-  const f = formatos.find(f => f.id === formato);
+  const f = p ? presentacionesDe(p.id).find(f => f.id === formato) : null;
   let kg, sugerido, descripcion;
   if (!f) {
+    // "Otro" / "Unidades": la cantidad se escribe a mano, en la unidad del producto
     kg = parseFloat($('vKg').value);
     sugerido = p ? kg * Number(p.precio) : NaN;
-    descripcion = 'Otro';
+    descripcion = p?.unidad === 'unidad' ? (kg === 1 ? '1 unidad' : `${kg} unidades`) : 'Otro';
   } else {
     const bolsas = parseInt($('vBolsas').value, 10);
     kg = f.kg == null ? NaN : Number(f.kg) * bolsas;
@@ -676,23 +704,27 @@ function datosVenta() {
 
 // Recalcula el total sugerido y muestra cuánto stock queda
 function actualizarVenta(recalcularTotal = true) {
-  const { p, f, formato, kg, sugerido } = datosVenta();
+  const { p, f, kg, sugerido } = datosVenta();
   $('errVenta').textContent = '';
-  // Productos por unidad: sin formatos, solo cuántas unidades
-  $('bloqueFormatos').classList.toggle('oculto', formato === 'unidad');
-  $('lblBolsas').textContent = formato === 'unidad' ? 'Cantidad (unidades)' : 'Cantidad (bolsas)';
-  $('campoBolsas').classList.toggle('oculto', formato === 'otro');
-  $('campoKg').classList.toggle('oculto', formato !== 'otro');
-  // Al cambiar producto, formato o cantidad: se propone que pagó todo
-  if (recalcularTotal && sugerido >= 0) {
-    totalVenta = Math.round(sugerido);
-    $('vPago').value = totalVenta;
-    $('vDebe').value = 0;
+  // Con presentación se elige cuántas; con "Otro"/"Unidades" se escribe la cantidad
+  const porUnidad = p?.unidad === 'unidad';
+  $('campoBolsas').classList.toggle('oculto', !f);
+  $('campoKg').classList.toggle('oculto', !!f);
+  $('lblKg').textContent = porUnidad ? 'Unidades' : 'Kg';
+  $('vKg').step = porUnidad ? '1' : '0.001';
+  $('vKg').placeholder = porUnidad ? 'Ej: 3' : 'Ej: 0,75';
+  // Al cambiar producto, presentación o cantidad: se propone el precio y que pagó todo
+  if (recalcularTotal) {
+    // Sin cantidad todavía (ej. "Otro" vacío) no hay precio que proponer
+    const hay = sugerido >= 0;
+    $('vPrecio').value = hay ? Math.round(sugerido) : '';
+    $('vPago').value = hay ? Math.round(sugerido) : '';
+    $('vDebe').value = hay ? 0 : '';
     tocado = { pago: false, debe: false };
   }
   mostrarTotalVenta();
   if (f && f.kg == null) {
-    $('resumenVenta').innerHTML = `<span class="sin-stock">Falta cargar cuántos kg pesa "${escapar(f.nombre)}". Configuralo en Stock → Formatos de venta.</span>`;
+    $('resumenVenta').innerHTML = `<span class="sin-stock">Falta cargar cuánto descuenta "${escapar(f.nombre)}". Completalo en Stock, en la tarjeta de ${escapar(p.nombre)}.</span>`;
     return;
   }
   if (!p || !(kg > 0)) {
@@ -705,46 +737,58 @@ function actualizarVenta(recalcularTotal = true) {
     : `Se descuentan ${cant(kg, p.unidad)} de ${escapar(p.nombre)} · quedan ${cant(queda, p.unidad)}`;
 }
 
-// Total de la venta = pagó + debe. Al editar uno, el otro se ajusta para mantener el total,
-// salvo que ese otro ya lo haya escrito la persona: ahí se respetan los dos números
-// (así se puede poner 0 y 0 para un regalo, o un descuento).
-// Si lo escrito supera el total, el total pasa a ser ese número (otro precio).
-let totalVenta = 0;
+// Precio de la venta = pagó + debe; los tres se pueden editar.
+// - Cambiar el precio propone que pagó todo.
+// - Al editar Pagó o Debe, el otro se ajusta para respetar el precio, salvo que ese otro
+//   ya lo haya escrito la persona: ahí se respetan los dos y el precio pasa a ser la suma
+//   (así 0 y 0 es un regalo). Si lo escrito supera el precio, el precio sube.
 let tocado = { pago: false, debe: false };
 const numero = id => Math.max(0, parseFloat($(id).value) || 0);
+const redondear = n => Math.round(n * 100) / 100;
 function mostrarTotalVenta() {
-  const pago = numero('vPago');
-  const total = pago + numero('vDebe');
-  // Total en $0 = regalo: solo descuenta del stock
-  $('totalVenta').innerHTML = total > 0
-    ? `Total: <strong>${dinero(total)}</strong>`
-    : `Total: <strong>$0</strong><span class="regalo-txt">🎁 Regalo · solo se descuenta del stock</span>`;
-  $('btnVenta').textContent = total > 0 ? 'Vender' : 'Registrar regalo';
+  const precio = numero('vPrecio');
+  // Precio $0 = regalo: solo descuenta del stock
+  $('totalVenta').classList.toggle('oculto', precio > 0 || $('vPrecio').value === '');
+  $('totalVenta').innerHTML = '<span class="regalo-txt">🎁 Regalo · solo se descuenta del stock</span>';
+  $('btnVenta').textContent = precio > 0 || $('vPrecio').value === '' ? 'Vender' : 'Registrar regalo';
   // Si no pagó nada no hace falta elegir cómo
-  $('bloqueMedio').classList.toggle('oculto', !(pago > 0));
+  $('bloqueMedio').classList.toggle('oculto', !(numero('vPago') > 0));
 }
 $('btnRegalo').addEventListener('click', () => {
+  $('vPrecio').value = 0;
   $('vPago').value = 0;
   $('vDebe').value = 0;
   tocado = { pago: true, debe: true };
   mostrarTotalVenta();
 });
-$('vPago').addEventListener('input', () => {
-  tocado.pago = true;
-  const pago = numero('vPago');
-  if (pago > totalVenta) totalVenta = pago;
-  if (!tocado.debe) $('vDebe').value = Math.round((totalVenta - pago) * 100) / 100;
+$('vPrecio').addEventListener('input', () => {
+  $('vPago').value = numero('vPrecio');
+  $('vDebe').value = 0;
+  tocado = { pago: false, debe: false };
   mostrarTotalVenta();
 });
-$('vDebe').addEventListener('input', () => {
-  tocado.debe = true;
-  const debe = numero('vDebe');
-  if (debe > totalVenta) totalVenta = debe;
-  if (!tocado.pago) $('vPago').value = Math.round((totalVenta - debe) * 100) / 100;
+function editarPagoODebe(este, otro) {
+  tocado[este === 'vPago' ? 'pago' : 'debe'] = true;
+  const yaTocado = tocado[otro === 'vPago' ? 'pago' : 'debe'];
+  const valor = numero(este);
+  if (yaTocado) {
+    $('vPrecio').value = redondear(valor + numero(otro));
+  } else {
+    if (valor > numero('vPrecio')) $('vPrecio').value = valor;
+    $(otro).value = redondear(numero('vPrecio') - valor);
+  }
   mostrarTotalVenta();
-});
+}
+$('vPago').addEventListener('input', () => editarPagoODebe('vPago', 'vDebe'));
+$('vDebe').addEventListener('input', () => editarPagoODebe('vDebe', 'vPago'));
 
-$('vProducto').addEventListener('change', () => actualizarVenta());
+// Al cambiar de producto se arranca de su primera presentación
+$('vProducto').addEventListener('change', () => {
+  $('vKg').value = '';
+  document.querySelectorAll('input[name="formato"]').forEach(r => { r.checked = false; });
+  renderPresentacionesVenta();
+  actualizarVenta();
+});
 $('formatos').addEventListener('change', () => {
   actualizarVenta();
   if (document.querySelector('input[name="formato"]:checked').value === 'otro') $('vKg').focus();
@@ -759,8 +803,9 @@ $('formVenta').addEventListener('submit', async e => {
   const debe = numero('vDebe');
   const medio = document.querySelector('input[name="medio"]:checked')?.value || null;
   if (!p) { $('errVenta').textContent = 'Elegí un producto.'; return; }
-  if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuántos kg pesa "${f.nombre}" (Stock → Formatos de venta).`; return; }
+  if (f && f.kg == null) { $('errVenta').textContent = `Falta cargar cuánto descuenta "${f.nombre}" (Stock, tarjeta de ${p.nombre}).`; return; }
   if (!(kg > 0)) { $('errVenta').textContent = 'Revisá la cantidad.'; return; }
+  if (p.unidad === 'unidad' && !Number.isInteger(kg)) { $('errVenta').textContent = 'Las unidades tienen que ser un número entero.'; return; }
   if (kg > Number(p.cantidad)) { $('errVenta').textContent = `Solo hay ${cant(p.cantidad, p.unidad)} en stock.`; return; }
   if (pago > 0 && !medio) { $('errVenta').textContent = 'Elegí si pagó en efectivo o por transferencia.'; return; }
   if (debe > 0 && !$('vCliente').value.trim()) { $('errVenta').textContent = 'Si queda debiendo, poné a quién se le vendió.'; return; }
@@ -772,6 +817,7 @@ $('formVenta').addEventListener('submit', async e => {
     const productoId = $('vProducto').value;
     $('formVenta').reset();
     $('vProducto').value = productoId;
+    renderPresentacionesVenta();
     actualizarVenta();
     renderDeudas();
   }
